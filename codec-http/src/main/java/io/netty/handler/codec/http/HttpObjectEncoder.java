@@ -59,6 +59,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
 
     @Override
     protected void encode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
+        ByteBuf buf = null;
         if (msg instanceof HttpMessage) {
             if (state != ST_INIT) {
                 throw new IllegalStateException("unexpected message type: " + StringUtil.simpleClassName(msg));
@@ -67,12 +68,11 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             @SuppressWarnings({ "unchecked", "CastConflictsWithInstanceof" })
             H m = (H) msg;
 
-            ByteBuf buf = ctx.alloc().buffer();
+            buf = ctx.alloc().buffer();
             // Encode the message.
             encodeInitialLine(buf, m);
             encodeHeaders(buf, m.headers());
             buf.writeBytes(CRLF);
-            out.add(buf);
             state = HttpHeaders.isTransferEncodingChunked(m) ? ST_CONTENT_CHUNK : ST_CONTENT_NON_CHUNK;
         }
         if (msg instanceof HttpContent || msg instanceof ByteBuf || msg instanceof FileRegion) {
@@ -83,17 +83,37 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             int contentLength = contentLength(msg);
             if (state == ST_CONTENT_NON_CHUNK) {
                 if (contentLength > 0) {
-                    out.add(encodeAndRetain(msg));
+                    if (buf != null && buf.writableBytes() >= contentLength && msg instanceof HttpContent) {
+                        // merge in if there is enough room
+                        buf.writeBytes(((HttpContent) msg).content());
+                        out.add(buf);
+                    } else {
+                        if (buf != null) {
+                            // Not enough room to merge or merge not supported. Add the previous
+                            // created buffer
+                            out.add(buf);
+                        }
+                        out.add(encodeAndRetain(msg));
+                    }
                 } else {
-                    // Need to produce some output otherwise an
-                    // IllegalStateException will be thrown
-                    out.add(EMPTY_BUFFER);
+                    if (buf == null) {
+                        // Need to produce some output otherwise an
+                        // IllegalStateException will be thrown
+                        out.add(EMPTY_BUFFER);
+                    } else {
+                        //  Add the previous created buffer
+                        out.add(buf);
+                    }
                 }
 
                 if (msg instanceof LastHttpContent) {
                     state = ST_INIT;
                 }
             } else if (state == ST_CONTENT_CHUNK) {
+                if (buf != null) {
+                    //  Add the previous created buffer
+                    out.add(buf);
+                }
                 encodeChunkedContent(ctx, msg, contentLength, out);
             } else {
                 throw new Error();
@@ -102,22 +122,39 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
     }
 
     private void encodeChunkedContent(ChannelHandlerContext ctx, Object msg, int contentLength, List<Object> out) {
+        ByteBuf buf = null;
         if (contentLength > 0) {
+            buf = ctx.alloc().buffer();
             byte[] length = Integer.toHexString(contentLength).getBytes(CharsetUtil.US_ASCII);
-            ByteBuf buf = ctx.alloc().buffer(length.length + 2);
             buf.writeBytes(length);
             buf.writeBytes(CRLF);
-            out.add(buf);
-            out.add(encodeAndRetain(msg));
-            out.add(CRLF_BUF.duplicate());
+            if (buf.writableBytes() >= contentLength + CRLF.length && msg instanceof HttpContent) {
+                buf.writeBytes(((HttpContent) msg).content());
+                buf.writeBytes(CRLF);
+            } else {
+                out.add(buf);
+                buf = null;
+                out.add(encodeAndRetain(msg));
+                out.add(CRLF_BUF.duplicate());
+            }
         }
 
         if (msg instanceof LastHttpContent) {
             HttpHeaders headers = ((LastHttpContent) msg).trailingHeaders();
             if (headers.isEmpty()) {
-                out.add(ZERO_CRLF_CRLF_BUF.duplicate());
+                if (buf != null && buf.writableBytes() >= ZERO_CRLF_CRLF.length) {
+                   buf.writeBytes(ZERO_CRLF_CRLF);
+                } else {
+                    if (buf != null) {
+                        out.add(buf);
+                    }
+                    out.add(ZERO_CRLF_CRLF_BUF.duplicate());
+                }
             } else {
-                ByteBuf buf = ctx.alloc().buffer();
+                if (buf != null) {
+                    out.add(buf);
+                }
+                buf = ctx.alloc().buffer();
                 buf.writeBytes(ZERO_CRLF);
                 encodeHeaders(buf, headers);
                 buf.writeBytes(CRLF);
@@ -130,6 +167,10 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
                 // Need to produce some output otherwise an
                 // IllegalstateException will be thrown
                 out.add(EMPTY_BUFFER);
+            } else {
+                if (buf != null) {
+                    out.add(buf);
+                }
             }
         }
     }
