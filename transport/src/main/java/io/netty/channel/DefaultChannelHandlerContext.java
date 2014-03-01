@@ -911,7 +911,7 @@ final class DefaultChannelHandlerContext implements ChannelHandlerContext, Resou
                     ChannelOutboundBuffer buffer = ctx.channel.unsafe().outboundBuffer();
                     // Check for null as it may be set to null if the channel is closed already
                     if (buffer != null) {
-                        buffer.decrementPendingOutboundBytes(size);
+                        buffer.decrementPendingOutboundBytes(size, true);
                     }
                 }
                 write(ctx, msg, promise);

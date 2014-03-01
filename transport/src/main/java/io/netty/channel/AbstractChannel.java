@@ -775,7 +775,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      * Create a new {@link ChannelOutboundBuffer} which holds the pending messages for this {@link AbstractChannel}.
      */
     protected ChannelOutboundBuffer newOutboundBuffer() {
-        return ChannelOutboundBuffer.newInstance(this);
+        return DefaultChannelOutboundBuffer.newInstance(this);
     }
 
     /**

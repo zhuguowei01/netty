@@ -17,6 +17,7 @@ package io.netty.channel.epoll;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelOutboundBuffer;
+import io.netty.channel.DefaultChannelOutboundBuffer;
 import io.netty.util.Recycler;
 
 import java.nio.ByteBuffer;
@@ -27,7 +28,7 @@ import java.util.Arrays;
  * and so doing gathering writes without the need to create a {@link ByteBuffer} internally. This reduce
  * GC pressure a lot.
  */
-final class EpollChannelOutboundBuffer extends ChannelOutboundBuffer {
+final class EpollChannelOutboundBuffer extends DefaultChannelOutboundBuffer {
     private AddressEntry[] addresses;
     private int addressCount;
     private long addressSize;
@@ -47,7 +48,7 @@ final class EpollChannelOutboundBuffer extends ChannelOutboundBuffer {
         return buffer;
     }
 
-    private EpollChannelOutboundBuffer(Recycler.Handle<? extends ChannelOutboundBuffer> handle) {
+    private EpollChannelOutboundBuffer(Recycler.Handle<? extends DefaultChannelOutboundBuffer> handle) {
         super(handle);
         addresses = new AddressEntry[INITIAL_CAPACITY];
     }

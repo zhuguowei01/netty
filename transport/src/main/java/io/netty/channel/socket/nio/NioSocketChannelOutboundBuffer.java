@@ -22,6 +22,7 @@ package io.netty.channel.socket.nio;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.AbstractChannel;
 import io.netty.channel.ChannelOutboundBuffer;
+import io.netty.channel.DefaultChannelOutboundBuffer;
 import io.netty.util.Recycler;
 
 import java.nio.ByteBuffer;
@@ -31,7 +32,7 @@ import java.util.Arrays;
  * Special {@link ChannelOutboundBuffer} implementation which allows to also access flushed {@link ByteBuffer} to
  * allow efficent gathering writes.
  */
-public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer {
+public final class NioSocketChannelOutboundBuffer extends DefaultChannelOutboundBuffer {
 
     private ByteBuffer[] nioBuffers;
     private int nioBufferCount;
