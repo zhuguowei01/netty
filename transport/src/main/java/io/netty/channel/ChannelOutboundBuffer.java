@@ -262,7 +262,6 @@ public abstract class ChannelOutboundBuffer {
         recycle();
     }
 
-
     /**
      * Fail all pending messages with the given {@link ClosedChannelException}.
      */

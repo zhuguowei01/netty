@@ -75,11 +75,6 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         nioBuffers = new ByteBuffer[INITIAL_CAPACITY];
     }
 
-    /**
-     * Add the given message to this {@link ChannelOutboundBuffer} so it will be marked as flushed once
-     * {@link #addFlush()} was called. The {@link io.netty.channel.ChannelPromise} will be notified once the write operations
-     * completes.
-     */
     @Override
     public int add(Object msg, ChannelPromise promise) {
         if (msg instanceof ByteBuf) {
@@ -228,7 +223,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         RECYCLER.recycle(this, handle);
     }
 
-    protected static class Entry {
+    protected static final class Entry {
         private static final Recycler<Entry> RECYCLER = new Recycler<Entry>() {
             @Override
             protected Entry newObject(Handle<Entry> handle) {
@@ -250,7 +245,6 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         private Object msg;
         private int pendingSize;
         private long pendingTotal;
-
         private Entry next;
         private NioSocketChannelOutboundBuffer buffer;
 
@@ -306,7 +300,6 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         }
 
         private int fail(Throwable cause, boolean decrementAndNotify) {
-            cause.printStackTrace();
             try {
                 buffer.writeCounter += pendingTotal;
                 if (!cancelled) {
