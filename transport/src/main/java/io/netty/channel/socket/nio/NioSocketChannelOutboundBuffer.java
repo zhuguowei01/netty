@@ -45,10 +45,13 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     private long totalPending;
     private long writeCounter;
 
-    private Entry first;
-    private Entry last;
+    // A circular buffer used to store messages.  The buffer is arranged such that:  flushed <= unflushed <= tail.  The
+    // flushed messages are stored in the range [flushed, unflushed).  Unflushed messages are stored in the range
+    // [unflushed, tail).
+    private Entry[] buffer;
     private int flushed;
-    private int messages;
+    private int unflushed;
+    private int tail;
 
     private final ArrayDeque<FlushCheckpoint> promises =
             new ArrayDeque<FlushCheckpoint>();
@@ -73,6 +76,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     private NioSocketChannelOutboundBuffer(Recycler.Handle<NioSocketChannelOutboundBuffer> handle) {
         this.handle = handle;
         nioBuffers = new ByteBuffer[INITIAL_CAPACITY];
+        buffer = new Entry[INITIAL_CAPACITY];
+        for (int i = 0; i < buffer.length; i++) {
+            buffer[i] = new Entry(this);
+        }
     }
 
     @Override
@@ -85,22 +92,17 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         }
         long total = total(msg);
         int size = (int) total(msg);
-
-        Entry e = Entry.newInstance(this);
-        if (last == null) {
-            first = e;
-            last = e;
-        } else {
-            last.next = e;
-            last = e;
-        }
+        Entry e = buffer[tail++];
         e.msg = msg;
         e.pendingSize = size;
         e.pendingTotal = total;
         totalPending += total;
         addPromise(promise);
+        tail &= buffer.length - 1;
 
-        messages++;
+        if (tail == flushed) {
+            addCapacity();
+        }
         return size;
     }
 
@@ -120,9 +122,37 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         promises.offer(checkpoint);
     }
 
+    /**
+     * Expand internal array which holds the {@link Entry}'s.
+     */
+    private void addCapacity() {
+        int p = flushed;
+        int n = buffer.length;
+        int r = n - p; // number of elements to the right of p
+        int s = size();
+
+        int newCapacity = n << 1;
+        if (newCapacity < 0) {
+            throw new IllegalStateException();
+        }
+
+        Entry[] e = new Entry[newCapacity];
+        System.arraycopy(buffer, p, e, 0, r);
+        System.arraycopy(buffer, 0, e, r, p);
+        for (int i = n; i < e.length; i++) {
+            e[i] = new Entry(this);
+        }
+
+        buffer = e;
+        flushed = 0;
+        unflushed = s;
+        tail = n;
+    }
+
     @Override
     public void addFlush() {
-        flushed = messages;
+        unflushed = tail;
+
         // TODO: Fix me
         /*
         final int mask = buffer.length - 1;
@@ -144,13 +174,14 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         if (isEmpty()) {
             return null;
         } else {
-            return first.msg;
+            Entry entry = buffer[flushed];
+            return entry.msg;
         }
     }
 
     @Override
     public void progress(long amount) {
-        Entry e = first;
+        Entry e = buffer[flushed];
         e.pendingTotal -= amount;
         assert e.pendingTotal >= 0;
         if (amount > 0) {
@@ -161,46 +192,39 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
 
     @Override
     public int remove0() {
-        Entry e = first;
-        first = e.next;
-        if (first == null) {
-            last = null;
-        }
-
-        messages--;
-        flushed--;
+        Entry e = buffer[flushed];
+        flushed = flushed + 1 & buffer.length - 1;
         return e.success();
     }
 
     @Override
     public int remove0(Throwable cause) {
-        Entry e = first;
-        first = e.next;
-        if (first == null) {
-            last = null;
-        }
-
-        messages--;
-        flushed--;
+        Entry e = buffer[flushed];
+        flushed = flushed + 1 & buffer.length - 1;
         return e.fail(cause, true);
     }
 
     @Override
     public int size() {
-        return flushed;
+        return unflushed - flushed & buffer.length - 1;
     }
 
     @Override
     public boolean isEmpty() {
-        return size() == 0;
+        return unflushed == flushed;
     }
 
     @Override
     protected void failUnflushed(final ClosedChannelException cause) {
-        Entry e = first;
-        while (e != null) {
-            e.fail(cause, false);
-            e = e.next;
+        // Release all unflushed messages.
+        final int unflushedCount = tail - unflushed & buffer.length - 1;
+        try {
+            for (int i = 0; i < unflushedCount; i++) {
+                Entry e = buffer[unflushed + i & buffer.length - 1];
+                e.fail(cause, false);
+            }
+        } finally {
+            tail = unflushed;
         }
     }
 
@@ -209,10 +233,27 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     public void recycle() {
         super.recycle();
         assert promises.isEmpty();
+        super.recycle();
+        if (buffer.length > INITIAL_CAPACITY) {
+            Entry[] e = new Entry[INITIAL_CAPACITY];
+            System.arraycopy(buffer, 0, e, 0, INITIAL_CAPACITY);
+            buffer = e;
+        }
+
+        // reset flushed, unflushed and tail
+        // See https://github.com/netty/netty/issues/1772
+        flushed = 0;
+        unflushed = 0;
+        tail = 0;
+
+        // Set the channel to null so it can be GC'ed ASAP
+        channel = null;
+
         nioBufferCount = 0;
         nioBufferSize = 0;
         totalPending = 0;
         writeCounter = 0;
+
         if (nioBuffers.length > INITIAL_CAPACITY) {
             nioBuffers = new ByteBuffer[INITIAL_CAPACITY];
         } else {
@@ -223,21 +264,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         RECYCLER.recycle(this, handle);
     }
 
-    protected static final class Entry {
-        private static final Recycler<Entry> RECYCLER = new Recycler<Entry>() {
-            @Override
-            protected Entry newObject(Handle<Entry> handle) {
-                return new Entry(handle);
-            }
-        };
-
-        static Entry newInstance(NioSocketChannelOutboundBuffer buffer) {
-            Entry entry = RECYCLER.get();
-            entry.buffer = buffer;
-            return entry;
-        }
-
-        private final Recycler.Handle<Entry> entryHandle;
+    private static final class Entry {
         boolean cancelled;
         ByteBuffer[] buffers;
         ByteBuffer buf;
@@ -245,12 +272,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         private Object msg;
         private int pendingSize;
         private long pendingTotal;
-        private Entry next;
-        private NioSocketChannelOutboundBuffer buffer;
+        private final NioSocketChannelOutboundBuffer buffer;
 
-        @SuppressWarnings("unchecked")
-        private Entry(Recycler.Handle<? extends Entry> entryHandle) {
-            this.entryHandle = (Recycler.Handle<Entry>) entryHandle;
+        Entry(NioSocketChannelOutboundBuffer buffer) {
+            this.buffer = buffer;
         }
 
         public Object msg() {
@@ -295,7 +320,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                 }
                 return pendingSize;
             } finally {
-                recycle();
+                clear();
             }
         }
 
@@ -311,20 +336,17 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                 }
                 return 0;
             } finally {
-                recycle();
+                clear();
             }
         }
 
-        private void recycle() {
+        private void clear() {
             msg = null;
             pendingSize = 0;
             pendingTotal = 0;
-            next = null;
-            buffer = null;
             buffers = null;
             buf = null;
             count = -1;
-            entryHandle.recycle(this);
         }
     }
 
@@ -342,20 +364,22 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     public ByteBuffer[] nioBuffers() {
         long nioBufferSize = 0;
         int nioBufferCount = 0;
+        final Entry[] buffer = this.buffer;
+        final int mask = buffer.length - 1;
+        ByteBuffer[] nioBuffers = this.nioBuffers;
+        Object m;
+        int unflushed = this.unflushed;
+        int i = flushed;
+        while (i != unflushed && (m = buffer[i].msg()) != null) {
+            if (!(m instanceof ByteBuf)) {
+                this.nioBufferCount = 0;
+                this.nioBufferSize = 0;
+                return null;
+            }
 
-        if (!isEmpty()) {
-            ByteBuffer[] nioBuffers = this.nioBuffers;
-            Entry entry = first;
-            int i = size();
+            Entry entry = buffer[i];
 
-            for (;;) {
-                Object m = entry.msg;
-                if (!(m instanceof ByteBuf)) {
-                    this.nioBufferCount = 0;
-                    this.nioBufferSize = 0;
-                    return null;
-                }
-
+            if (!entry.isCancelled()) {
                 ByteBuf buf = (ByteBuf) m;
                 final int readerIndex = buf.readerIndex();
                 final int readableBytes = buf.writerIndex() - readerIndex;
@@ -365,13 +389,13 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                     int count = entry.count;
                     if (count == -1) {
                         //noinspection ConstantValueVariableUse
-                        entry.count = count = buf.nioBufferCount();
+                        entry.count = count =  buf.nioBufferCount();
                     }
                     int neededSpace = nioBufferCount + count;
                     if (neededSpace > nioBuffers.length) {
-                        this.nioBuffers = nioBuffers = expandNioBufferArray(nioBuffers, neededSpace, nioBufferCount);
+                        this.nioBuffers = nioBuffers =
+                                expandNioBufferArray(nioBuffers, neededSpace, nioBufferCount);
                     }
-
                     if (count == 1) {
                         ByteBuffer nioBuf = entry.buf;
                         if (nioBuf == null) {
@@ -383,19 +407,17 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                     } else {
                         ByteBuffer[] nioBufs = entry.buffers;
                         if (nioBufs == null) {
-                            // cached ByteBuffers as they may be expensive to create in terms of Object allocation
+                            // cached ByteBuffers as they may be expensive to create in terms
+                            // of Object allocation
                             entry.buffers = nioBufs = buf.nioBuffers();
                         }
                         nioBufferCount = fillBufferArray(nioBufs, nioBuffers, nioBufferCount);
                     }
                 }
-                if (--i == 0) {
-                    break;
-                }
-                entry = entry.next;
             }
-        }
 
+            i = i + 1 & mask;
+        }
         this.nioBufferCount = nioBufferCount;
         this.nioBufferSize = nioBufferSize;
 
