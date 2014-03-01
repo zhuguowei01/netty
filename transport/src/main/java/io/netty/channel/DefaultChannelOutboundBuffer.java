@@ -55,8 +55,6 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
     private int unflushed;
     private int tail;
 
-    private boolean inFail;
-
     protected DefaultChannelOutboundBuffer(Recycler.Handle<? extends DefaultChannelOutboundBuffer> handle) {
         this.handle = handle;
 
@@ -228,27 +226,7 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
     }
 
     @Override
-    protected final void close(final ClosedChannelException cause) {
-        if (inFail) {
-            channel.eventLoop().execute(new Runnable() {
-                @Override
-                public void run() {
-                    close(cause);
-                }
-            });
-            return;
-        }
-
-        inFail = true;
-
-        if (channel.isOpen()) {
-            throw new IllegalStateException("close() must be invoked after the channel is closed.");
-        }
-
-        if (!isEmpty()) {
-            throw new IllegalStateException("close() must be invoked after all flushed writes are handled.");
-        }
-
+    protected final void failUnflushed(final ClosedChannelException cause) {
         // Release all unflushed messages.
         final int unflushedCount = tail - unflushed & buffer.length - 1;
         try {
@@ -268,10 +246,7 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
             }
         } finally {
             tail = unflushed;
-            inFail = false;
         }
-
-        recycle();
     }
 
     @SuppressWarnings("unchecked")

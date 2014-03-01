@@ -89,7 +89,7 @@ public abstract class ChannelOutboundBuffer {
      * Increment the pending bytes which will be written at some point.
      * This method is thread-safe!
      */
-    final void incrementPendingOutboundBytes(int size) {
+    protected final void incrementPendingOutboundBytes(int size) {
         // Cache the channel and check for null to make sure we not produce a NPE in case of the Channel gets
         // recycled while process this method.
         if (size == 0 || channel == null) {
@@ -116,7 +116,7 @@ public abstract class ChannelOutboundBuffer {
      * Decrement the pending bytes which will be written at some point.
      * This method is thread-safe!
      */
-    final void decrementPendingOutboundBytes(int size, boolean fireEvent) {
+    protected final void decrementPendingOutboundBytes(int size, boolean fireEvent) {
         // Cache the channel and check for null to make sure we not produce a NPE in case of the Channel gets
         // recycled while process this method.
         if (size == 0 || channel == null) {
@@ -233,7 +233,40 @@ public abstract class ChannelOutboundBuffer {
     /**
      * Fail all pending messages with the given {@link ClosedChannelException}.
      */
-   protected abstract void close(ClosedChannelException cause);
+    protected final void close(final ClosedChannelException cause) {
+        if (inFail) {
+            channel.eventLoop().execute(new Runnable() {
+                @Override
+                public void run() {
+                    close(cause);
+                }
+            });
+            return;
+        }
+
+        inFail = true;
+
+        if (channel.isOpen()) {
+            throw new IllegalStateException("close() must be invoked after the channel is closed.");
+        }
+
+        if (!isEmpty()) {
+            throw new IllegalStateException("close() must be invoked after all flushed writes are handled.");
+        }
+
+        try {
+            failUnflushed(cause);
+        } finally {
+            inFail = false;
+        }
+        recycle();
+    }
+
+
+    /**
+     * Fail all pending messages with the given {@link ClosedChannelException}.
+     */
+   protected abstract void failUnflushed(ClosedChannelException cause);
 
     /**
      * Release the message and log if any error happens during release.
@@ -250,7 +283,7 @@ public abstract class ChannelOutboundBuffer {
      * Try to mark the given {@link ChannelPromise} as success and log if this failed.
      */
     protected static void safeSuccess(ChannelPromise promise) {
-        if (!(promise instanceof VoidChannelPromise) && !promise.trySuccess()) {
+        if (!isVoidPromise(promise) && !promise.trySuccess()) {
             logger.warn("Failed to mark a promise as success because it is done already: {}", promise);
         }
     }
@@ -259,7 +292,7 @@ public abstract class ChannelOutboundBuffer {
      * Try to mark the given {@link ChannelPromise} as failued with the given {@link Throwable} and log if this failed.
      */
     protected static void safeFail(ChannelPromise promise, Throwable cause) {
-        if (!(promise instanceof VoidChannelPromise) && !promise.tryFailure(cause)) {
+        if (!isVoidPromise(promise) && !promise.tryFailure(cause)) {
             logger.warn("Failed to mark a promise as failure because it's done already: {}", promise, cause);
         }
     }
@@ -279,6 +312,10 @@ public abstract class ChannelOutboundBuffer {
      */
     public final long totalPendingWriteBytes() {
         return totalPendingSize;
+    }
+
+    protected static boolean isVoidPromise(ChannelPromise promise) {
+       return promise instanceof VoidChannelPromise;
     }
 
     protected final ByteBuf copyToDirectByteBuf(ByteBuf buf) {
