@@ -84,14 +84,56 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
 
     @Override
     public int add(Object msg, ChannelPromise promise) {
-        if (msg instanceof ByteBuf) {
-            ByteBuf buf = (ByteBuf) msg;
-            if (!buf.isDirect()) {
-                msg = copyToDirectByteBuf(buf);
-            }
-        }
         long total = total(msg);
         int size = (int) total(msg);
+
+        if (tail > 0 && msg instanceof ByteBuf) {
+            ByteBuf buf = (ByteBuf) msg;
+            Entry last = buffer[tail - 1];
+            Object lastMsg = last.msg;
+            if (lastMsg instanceof ByteBuf) {
+                ByteBuf lastBuf = (ByteBuf) lastMsg;
+                if (!lastBuf.isWritable(buf.readableBytes())) {
+                    if (lastBuf.capacity() == 8192) {
+                        Entry e = buffer[tail++];
+                        e.msg = msg;
+                        e.pendingSize = size;
+                        e.pendingTotal = total;
+                        totalPending += total;
+                        addPromise(promise);
+                        tail &= buffer.length - 1;
+
+                        if (tail == flushed) {
+                            addCapacity();
+                        }
+                        return size;
+                    } else {
+                        last.msg = channel.alloc().directBuffer(8192);
+                        ByteBuf newLastBuf = (ByteBuf) last.msg;
+                        newLastBuf.writeBytes(lastBuf);
+                        safeRelease(lastBuf);
+                        lastBuf = newLastBuf;
+                    }
+                }
+                lastBuf.writeBytes(buf);
+                safeRelease(buf);
+                last.pendingSize += size;
+                last.pendingTotal += total;
+                totalPending += total;
+                addPromise(promise);
+                tail &= buffer.length - 1;
+
+                if (tail == flushed) {
+                    addCapacity();
+                }
+                return size;
+            } else {
+                if (!buf.isDirect()) {
+                    msg = copyToDirectByteBuf(buf);
+                }
+            }
+        }
+
         Entry e = buffer[tail++];
         e.msg = msg;
         e.pendingSize = size;
