@@ -301,13 +301,8 @@ public class ChannelOutboundBuffer {
      * This method will return {@code true} if there are more messages left to process,  {@code false} otherwise.
      */
     public final boolean remove() {
-        if (isEmpty()) {
-            return false;
-        }
-
-        Entry e = buffer[flushed];
-        Object msg = e.msg;
-        if (msg == null) {
+        Entry e = removeEntry();
+        if (e == null) {
             return false;
         }
 
@@ -321,18 +316,26 @@ public class ChannelOutboundBuffer {
      * {@code false} otherwise.
      */
     public final boolean remove(Throwable cause) {
-        if (isEmpty()) {
-            return false;
-        }
-
-        Entry e = buffer[flushed];
-        Object msg = e.msg;
-        if (msg == null) {
+        Entry e = removeEntry();
+        if (e == null) {
             return false;
         }
 
         decrementPendingAndUpdateFlushed(e.fail(cause));
         return true;
+    }
+
+    private Entry removeEntry() {
+        if (isEmpty()) {
+            return null;
+        }
+
+        Entry e = buffer[flushed];
+        Object msg = e.msg;
+        if (msg == null) {
+            return null;
+        }
+        return e;
     }
 
     private void decrementPendingAndUpdateFlushed(int size) {
@@ -514,13 +517,13 @@ public class ChannelOutboundBuffer {
     }
 
     protected static class Entry {
-        Object msg;
+        private Object msg;
+        private boolean cancelled;
+
         ChannelPromise promise;
         long progress;
         long total;
         int pendingSize;
-        int count = -1;
-        boolean cancelled;
 
         public Object msg() {
             return msg;
@@ -564,7 +567,6 @@ public class ChannelOutboundBuffer {
             progress = 0;
             total = 0;
             pendingSize = 0;
-            count = -1;
             cancelled = false;
         }
 
