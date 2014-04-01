@@ -26,6 +26,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.Recycler;
 import io.netty.util.Recycler.Handle;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.internal.OneTimeTask;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -225,11 +226,7 @@ public class ChannelOutboundBuffer {
         }
     }
 
-    /**
-     * Decrement the pending bytes which will be written at some point.
-     * This method is thread-safe!
-     */
-    final void decrementPendingOutboundBytes(int size) {
+    private void decrementPendingOutboundBytes(int size, boolean notify) {
         // Cache the channel and check for null to make sure we not produce a NPE in case of the Channel gets
         // recycled while process this method.
         Channel channel = this.channel;
@@ -244,13 +241,23 @@ public class ChannelOutboundBuffer {
             newWriteBufferSize = oldValue - size;
         }
 
-        int lowWaterMark = channel.config().getWriteBufferLowWaterMark();
+        if (notify) {
+            int lowWaterMark = channel.config().getWriteBufferLowWaterMark();
 
-        if (newWriteBufferSize == 0 || newWriteBufferSize < lowWaterMark) {
-            if (WRITABLE_UPDATER.compareAndSet(this, 0, 1)) {
-                channel.pipeline().fireChannelWritabilityChanged();
+            if (newWriteBufferSize == 0 || newWriteBufferSize < lowWaterMark) {
+                if (WRITABLE_UPDATER.compareAndSet(this, 0, 1)) {
+                    channel.pipeline().fireChannelWritabilityChanged();
+                }
             }
         }
+    }
+
+    /**
+     * Decrement the pending bytes which will be written at some point.
+     * This method is thread-safe!
+     */
+    final void decrementPendingOutboundBytes(int size) {
+        decrementPendingOutboundBytes(size, true);
     }
 
     private static long total(Object msg) {
@@ -304,20 +311,7 @@ public class ChannelOutboundBuffer {
             return false;
         }
 
-        ChannelPromise promise = e.promise;
-        int size = e.pendingSize;
-
-        e.clear();
-
-        flushed = flushed + 1 & buffer.length - 1;
-
-        if (!e.cancelled) {
-            // only release message, notify and decrement if it was not canceled before.
-            safeRelease(msg);
-            safeSuccess(promise);
-            decrementPendingOutboundBytes(size);
-        }
-
+        decrementPendingAndUpdateFlushed(e.success());
         return true;
     }
 
@@ -337,22 +331,16 @@ public class ChannelOutboundBuffer {
             return false;
         }
 
-        ChannelPromise promise = e.promise;
-        int size = e.pendingSize;
+        decrementPendingAndUpdateFlushed(e.fail(cause));
+        return true;
+    }
 
-        e.clear();
-
+    private void decrementPendingAndUpdateFlushed(int size) {
         flushed = flushed + 1 & buffer.length - 1;
 
-        if (!e.cancelled) {
-            // only release message, fail and decrement if it was not canceled before.
-            safeRelease(msg);
-
-            safeFail(promise, cause);
+        if (size > 0) {
             decrementPendingOutboundBytes(size);
         }
-
-        return true;
     }
 
     final boolean getWritable() {
@@ -403,7 +391,7 @@ public class ChannelOutboundBuffer {
      */
    final void close(final ClosedChannelException cause) {
         if (inFail) {
-            channel.eventLoop().execute(new Runnable() {
+            channel.eventLoop().execute(new OneTimeTask() {
                 @Override
                 public void run() {
                     close(cause);
@@ -429,21 +417,8 @@ public class ChannelOutboundBuffer {
                 Entry e = buffer[unflushed + i & buffer.length - 1];
 
                 // Just decrease; do not trigger any events via decrementPendingOutboundBytes()
-                int size = e.pendingSize;
-                long oldValue = totalPendingSize;
-                long newWriteBufferSize = oldValue - size;
-                while (!TOTAL_PENDING_SIZE_UPDATER.compareAndSet(this, oldValue, newWriteBufferSize)) {
-                    oldValue = totalPendingSize;
-                    newWriteBufferSize = oldValue - size;
-                }
-
-                e.pendingSize = 0;
-                if (!e.cancelled) {
-                    safeRelease(e.msg);
-                    safeFail(e.promise, cause);
-                }
-                e.msg = null;
-                e.promise = null;
+                int size = e.fail(cause);
+                decrementPendingOutboundBytes(size, false);
             }
         } finally {
             tail = unflushed;
@@ -461,24 +436,6 @@ public class ChannelOutboundBuffer {
             ReferenceCountUtil.release(message);
         } catch (Throwable t) {
             logger.warn("Failed to release a message.", t);
-        }
-    }
-
-    /**
-     * Try to mark the given {@link ChannelPromise} as success and log if this failed.
-     */
-    private static void safeSuccess(ChannelPromise promise) {
-        if (!(promise instanceof VoidChannelPromise) && !promise.trySuccess()) {
-            logger.warn("Failed to mark a promise as success because it is done already: {}", promise);
-        }
-    }
-
-    /**
-     * Try to mark the given {@link ChannelPromise} as failued with the given {@link Throwable} and log if this failed.
-     */
-    private static void safeFail(ChannelPromise promise, Throwable cause) {
-        if (!(promise instanceof VoidChannelPromise) && !promise.tryFailure(cause)) {
-            logger.warn("Failed to mark a promise as failure because it's done already: {}", promise, cause);
         }
     }
 
@@ -609,6 +566,49 @@ public class ChannelOutboundBuffer {
             pendingSize = 0;
             count = -1;
             cancelled = false;
+        }
+
+        public int success() {
+            int size = pendingSize;
+
+            if (!cancelled) {
+                // only release message, notify and decrement if it was not canceled before.
+                safeRelease(msg);
+                safeSuccess(promise);
+            }
+            clear();
+            return size;
+        }
+
+        public int fail(Throwable cause) {
+            int size = pendingSize;
+
+            if (!cancelled) {
+                // only release message, fail and decrement if it was not canceled before.
+                safeRelease(msg);
+                safeFail(promise, cause);
+            }
+            clear();
+            return size;
+        }
+
+        /**
+         * Try to mark the given {@link ChannelPromise} as success and log if this failed.
+         */
+        private static void safeSuccess(ChannelPromise promise) {
+            if (!(promise instanceof VoidChannelPromise) && !promise.trySuccess()) {
+                logger.warn("Failed to mark a promise as success because it is done already: {}", promise);
+            }
+        }
+
+        /**
+         * Try to mark the given {@link ChannelPromise} as failued with the given {@link Throwable} and
+         * log if this failed.
+         */
+        private static void safeFail(ChannelPromise promise, Throwable cause) {
+            if (!(promise instanceof VoidChannelPromise) && !promise.tryFailure(cause)) {
+                logger.warn("Failed to mark a promise as failure because it's done already: {}", promise, cause);
+            }
         }
     }
 }
