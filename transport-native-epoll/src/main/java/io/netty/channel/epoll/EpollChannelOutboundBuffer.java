@@ -192,7 +192,7 @@ final class EpollChannelOutboundBuffer extends ChannelOutboundBuffer {
         }
 
         @Override
-        public int cancel() {
+        protected int cancel() {
             memoryAddress = -1;
             readerIndex = 0;
             writerIndex = 0;

@@ -223,7 +223,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         }
 
         @Override
-        public int cancel() {
+        protected int cancel() {
             buffers = null;
             buf = null;
             count = -1;

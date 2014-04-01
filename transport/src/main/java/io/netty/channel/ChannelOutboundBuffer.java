@@ -189,9 +189,8 @@ public class ChannelOutboundBuffer {
         int i = flushed;
         while (i != unflushed && buffer[i].msg != null) {
             Entry entry = buffer[i];
-            if (!entry.promise.setUncancellable()) {
-                // Was cancelled so make sure we free up memory and notify about the freed bytes
-                int pending = entry.cancel();
+            int pending = entry.setUncancellable();
+            if (pending > 0) {
                 decrementPendingOutboundBytes(pending);
             }
             i = i + 1 & mask;
@@ -288,12 +287,7 @@ public class ChannelOutboundBuffer {
 
     public final void progress(long amount) {
         Entry e = buffer[flushed];
-        ChannelPromise p = e.promise;
-        if (p instanceof ChannelProgressivePromise) {
-            long progress = e.progress + amount;
-            e.progress = progress;
-            ((ChannelProgressivePromise) p).tryProgress(progress, e.total);
-        }
+        e.progress(amount);
     }
 
     /**
@@ -498,7 +492,7 @@ public class ChannelOutboundBuffer {
         return unflushed;
     }
 
-    protected ByteBuf copyToDirectByteBuf(ByteBuf buf) {
+    protected final ByteBuf copyToDirectByteBuf(ByteBuf buf) {
         int readableBytes = buf.readableBytes();
         ByteBufAllocator alloc = channel.alloc();
         if (alloc.isDirectBufferPooled()) {
@@ -519,12 +513,14 @@ public class ChannelOutboundBuffer {
     protected static class Entry {
         private Object msg;
         private boolean cancelled;
+        private ChannelPromise promise;
+        private long progress;
+        private long total;
+        private int pendingSize;
 
-        ChannelPromise promise;
-        long progress;
-        long total;
-        int pendingSize;
-
+        /**
+         * Returns the message which belongs to this {@link Entry}.
+         */
         public Object msg() {
             return msg;
         }
@@ -541,7 +537,7 @@ public class ChannelOutboundBuffer {
          * Cancel this {@link Entry} and the message that was hold by this {@link Entry}. This method returns the
          * number of pending bytes for the cancelled message.
          */
-        public int cancel() {
+        protected int cancel() {
             if (!cancelled) {
                 cancelled = true;
                 int pSize = pendingSize;
@@ -570,6 +566,9 @@ public class ChannelOutboundBuffer {
             cancelled = false;
         }
 
+        /**
+         * Mark the {@link Entry} as success and notify the corresponding {@link ChannelPromise}.
+         */
         public int success() {
             int size = pendingSize;
 
@@ -582,6 +581,10 @@ public class ChannelOutboundBuffer {
             return size;
         }
 
+        /**
+         * Mark the {@link Entry} as failure with the given {@link Throwable} and notify the corresponding
+         * {@link ChannelPromise}.
+         */
         public int fail(Throwable cause) {
             int size = pendingSize;
 
@@ -592,6 +595,28 @@ public class ChannelOutboundBuffer {
             }
             clear();
             return size;
+        }
+
+        /**
+         * Notify the  {@link Entry} about progress
+         */
+        public void progress(long amount) {
+            if (promise instanceof ChannelProgressivePromise) {
+                progress += amount;
+                ((ChannelProgressivePromise) promise).tryProgress(progress, total);
+            }
+        }
+
+        /**
+         * Set the {@link Entry} as uncancellable and if this fails return the number of pending bytes or {@code 0}
+         * otherwise.
+         */
+        public int setUncancellable() {
+            if (!promise.setUncancellable()) {
+                // Was cancelled so make sure we free up memory and notify about the freed bytes
+                return cancel();
+            }
+            return 0;
         }
 
         /**
