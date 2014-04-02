@@ -20,23 +20,37 @@
 package io.netty.channel.socket.nio;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.AbstractChannel;
 import io.netty.channel.ChannelOutboundBuffer;
-import io.netty.channel.DefaultChannelOutboundBuffer;
+import io.netty.channel.ChannelProgressivePromise;
+import io.netty.channel.ChannelPromise;
 import io.netty.util.Recycler;
 
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.util.Arrays;
 
 /**
  * Special {@link ChannelOutboundBuffer} implementation which allows to also access flushed {@link ByteBuffer} to
  * allow efficent gathering writes.
  */
-public final class NioSocketChannelOutboundBuffer extends DefaultChannelOutboundBuffer {
+public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer {
+    private static final int INITIAL_CAPACITY = 32;
+
+    private final Recycler.Handle<? extends NioSocketChannelOutboundBuffer> handle;
 
     private ByteBuffer[] nioBuffers;
     private int nioBufferCount;
     private long nioBufferSize;
+
+    // A circular buffer used to store messages.  The buffer is arranged such that:  flushed <= unflushed <= tail.  The
+    // flushed messages are stored in the range [flushed, unflushed).  Unflushed messages are stored in the range
+    // [unflushed, tail).
+    private Entry[] buffer;
+    private int flushed;
+    private int unflushed;
+    private int tail;
 
     private static final Recycler<NioSocketChannelOutboundBuffer> RECYCLER =
             new Recycler<NioSocketChannelOutboundBuffer>() {
@@ -55,24 +69,149 @@ public final class NioSocketChannelOutboundBuffer extends DefaultChannelOutbound
         return buffer;
     }
 
-    private NioSocketChannelOutboundBuffer(Recycler.Handle<? extends NioSocketChannelOutboundBuffer> handle) {
-        super(handle);
+    private NioSocketChannelOutboundBuffer(Recycler.Handle<NioSocketChannelOutboundBuffer> handle) {
+        this.handle = handle;
+
+        buffer = new Entry[INITIAL_CAPACITY];
+        for (int i = 0; i < buffer.length; i++) {
+            buffer[i] = new Entry();
+        }
         nioBuffers = new ByteBuffer[INITIAL_CAPACITY];
     }
 
-    /**
-     * Convert all non direct {@link ByteBuf} to direct {@link ByteBuf}'s. This is done as the JDK implementation
-     * will do the conversation itself and we can do a better job here.
-     */
     @Override
-    protected Object beforeAdd(Object msg) {
+    public void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
             if (!buf.isDirect()) {
-                return copyToDirectByteBuf(buf);
+                msg = copyToDirectByteBuf(buf);
             }
         }
-        return msg;
+
+        Entry e = buffer[tail++];
+        e.msg = msg;
+        e.pendingSize = estimatedSize;
+        e.promise = promise;
+        e.total = total(msg);
+
+        tail &= buffer.length - 1;
+
+        if (tail == flushed) {
+            addCapacity();
+        }
+    }
+
+    /**
+     * Expand internal array which holds the {@link Entry}'s.
+     */
+    private void addCapacity() {
+        int p = flushed;
+        int n = buffer.length;
+        int r = n - p; // number of elements to the right of p
+        int s = size();
+
+        int newCapacity = n << 1;
+        if (newCapacity < 0) {
+            throw new IllegalStateException();
+        }
+
+        Entry[] e = new Entry[newCapacity];
+        System.arraycopy(buffer, p, e, 0, r);
+        System.arraycopy(buffer, 0, e, r, p);
+        for (int i = n; i < e.length; i++) {
+            e[i] = new Entry();
+        }
+
+        buffer = e;
+        flushed = 0;
+        unflushed = s;
+        tail = n;
+    }
+
+    @Override
+    public void addFlush() {
+        unflushed = tail;
+
+        final int mask = buffer.length - 1;
+        int i = flushed;
+        while (i != unflushed && buffer[i].msg != null) {
+            Entry entry = buffer[i];
+            int pending = entry.setUncancellable();
+            if (pending > 0) {
+                decrementPendingOutboundBytes(pending);
+            }
+            i = i + 1 & mask;
+        }
+    }
+
+    @Override
+    protected Object current0() {
+        Entry entry = buffer[flushed];
+        return entry.msg;
+    }
+
+    @Override
+    public void progress(long amount) {
+        Entry e = buffer[flushed];
+        e.progress(amount);
+    }
+
+    @Override
+    protected int remove0() {
+        Entry e = removeEntry();
+        if (e == null) {
+            return -1;
+        }
+        flushed = flushed + 1 & buffer.length - 1;
+
+        return e.success();
+    }
+
+    @Override
+    protected int remove0(Throwable cause) {
+        Entry e = removeEntry();
+        if (e == null) {
+            return -1;
+        }
+        flushed = flushed + 1 & buffer.length - 1;
+
+        return e.fail(cause);
+    }
+
+    private Entry removeEntry() {
+        Entry e = buffer[flushed];
+        Object msg = e.msg;
+        if (msg == null) {
+            return null;
+        }
+        return e;
+    }
+
+    @Override
+    public int size() {
+        return unflushed - flushed & buffer.length - 1;
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return unflushed == flushed;
+    }
+
+    @Override
+    protected int failUnflushed(ClosedChannelException cause) {
+        int size = 0;
+        // Release all unflushed messages.
+        final int unflushedCount = tail - unflushed & buffer.length - 1;
+        try {
+            for (int i = 0; i < unflushedCount; i++) {
+                Entry e = buffer[unflushed + i & buffer.length - 1];
+
+                size += e.fail(cause);
+            }
+        } finally {
+            tail = unflushed;
+        }
+        return size;
     }
 
     /**
@@ -89,12 +228,12 @@ public final class NioSocketChannelOutboundBuffer extends DefaultChannelOutbound
     public ByteBuffer[] nioBuffers() {
         long nioBufferSize = 0;
         int nioBufferCount = 0;
-        final Entry[] buffer = entries();
+        final Entry[] buffer = this.buffer;
         final int mask = buffer.length - 1;
         ByteBuffer[] nioBuffers = this.nioBuffers;
         Object m;
-        int unflushed = unflushed();
-        int i = flushed();
+        int unflushed = this.unflushed;
+        int i = flushed;
         while (i != unflushed && (m = buffer[i].msg()) != null) {
             if (!(m instanceof ByteBuf)) {
                 this.nioBufferCount = 0;
@@ -102,7 +241,7 @@ public final class NioSocketChannelOutboundBuffer extends DefaultChannelOutbound
                 return null;
             }
 
-            NioEntry entry = (NioEntry) buffer[i];
+            Entry entry = buffer[i];
 
             if (!entry.isCancelled()) {
                 ByteBuf buf = (ByteBuf) m;
@@ -193,6 +332,7 @@ public final class NioSocketChannelOutboundBuffer extends DefaultChannelOutbound
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void recycle() {
         // take care of recycle the ByteBuffer[] structure.
         if (nioBuffers.length > INITIAL_CAPACITY) {
@@ -202,33 +342,139 @@ public final class NioSocketChannelOutboundBuffer extends DefaultChannelOutbound
             // https://github.com/netty/netty/issues/1763
             Arrays.fill(nioBuffers, null);
         }
+        if (buffer.length > INITIAL_CAPACITY) {
+            Entry[] e = new Entry[INITIAL_CAPACITY];
+            System.arraycopy(buffer, 0, e, 0, INITIAL_CAPACITY);
+            buffer = e;
+        }
+
+        // reset flushed, unflushed and tail
+        // See https://github.com/netty/netty/issues/1772
+        flushed = 0;
+        unflushed = 0;
+        tail = 0;
+
+        RECYCLER.recycle(this, (Recycler.Handle<NioSocketChannelOutboundBuffer>) handle);
         super.recycle();
     }
 
-    @Override
-    protected NioEntry newEntry() {
-        return new NioEntry();
-    }
-
-    protected static final class NioEntry extends Entry {
+    private static class Entry {
+        private Object msg;
+        private boolean cancelled;
+        private ChannelPromise promise;
+        private long progress;
+        private long total;
+        private int pendingSize;
         ByteBuffer[] buffers;
         ByteBuffer buf;
         int count = -1;
 
-        @Override
-        public void clear() {
-            buffers = null;
-            buf = null;
-            count = -1;
-            super.clear();
+        /**
+         * Returns the message which belongs to this {@link Entry}.
+         */
+        public Object msg() {
+            return msg;
         }
 
-        @Override
+        /**
+         * Return {@code true} if the {@link Entry} was cancelled via {@link #cancel()} before,
+         * {@code false} otherwise.
+         */
+        public boolean isCancelled() {
+            return cancelled;
+        }
+
+        /**
+         * Cancel this {@link Entry} and the message that was hold by this {@link Entry}. This method returns the
+         * number of pending bytes for the cancelled message.
+         */
         protected int cancel() {
+
+            if (!cancelled) {
+                cancelled = true;
+                int pSize = pendingSize;
+
+                // release message and replace with an empty buffer
+                safeRelease(msg);
+                msg = Unpooled.EMPTY_BUFFER;
+
+                pendingSize = 0;
+                total = 0;
+                progress = 0;
+                buffers = null;
+                buf = null;
+                count = -1;
+                return pSize;
+            }
+            return 0;
+        }
+
+        /**
+         * Clear this {@link Entry} and so release all resources.
+         */
+        public void clear() {
+            msg = null;
+            promise = null;
+            progress = 0;
+            total = 0;
+            pendingSize = 0;
+            cancelled = false;
             buffers = null;
             buf = null;
             count = -1;
-            return super.cancel();
+        }
+
+        /**
+         * Mark the {@link Entry} as success and notify the corresponding {@link ChannelPromise}.
+         */
+        public int success() {
+            int size = pendingSize;
+
+            if (!cancelled) {
+                // only release message, notify and decrement if it was not canceled before.
+                safeRelease(msg);
+                safeSuccess(promise);
+            }
+            clear();
+            return size;
+        }
+
+        /**
+         * Mark the {@link Entry} as failure with the given {@link Throwable} and notify the corresponding
+         * {@link ChannelPromise}.
+         */
+        public int fail(Throwable cause) {
+            int size = pendingSize;
+
+            if (!cancelled) {
+                // only release message, fail and decrement if it was not canceled before.
+                safeRelease(msg);
+                safeFail(promise, cause);
+            }
+            clear();
+            return size;
+        }
+
+        /**
+         * Notify the  {@link Entry} about progress
+         */
+        public void progress(long amount) {
+            if (promise instanceof ChannelProgressivePromise) {
+                progress += amount;
+                ((ChannelProgressivePromise) promise).tryProgress(progress, total);
+            }
+        }
+
+        /**
+         * Set the {@link Entry} as uncancellable and if this fails return the number of pending bytes or {@code 0}
+         * otherwise.
+         */
+        public int setUncancellable() {
+            if (!promise.setUncancellable()) {
+                // Was cancelled so make sure we free up memory and notify about the freed bytes
+                return cancel();
+            }
+            return 0;
         }
     }
 }

@@ -72,16 +72,12 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
     }
 
     @Override
-    public final int addMessage0(Object msg, ChannelPromise promise) {
+    public final void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         msg = beforeAdd(msg);
-        int size = channel.estimatorHandle().size(msg);
-        if (size < 0) {
-            size = 0;
-        }
 
         Entry e = buffer[tail++];
         e.msg = msg;
-        e.pendingSize = size;
+        e.pendingSize = estimatedSize;
         e.promise = promise;
         e.total = total(msg);
 
@@ -90,7 +86,6 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
         if (tail == flushed) {
             addCapacity();
         }
-        return size;
     }
 
     /**

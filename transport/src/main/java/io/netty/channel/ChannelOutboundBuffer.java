@@ -72,14 +72,18 @@ public abstract class ChannelOutboundBuffer {
      * completes.
      */
     public final void addMessage(Object msg, ChannelPromise promise) {
-        int size = addMessage0(msg, promise);
+        int size = channel.estimatorHandle().size(msg);
+        if (size < 0) {
+            size = 0;
+        }
+        addMessage0(msg, size, promise);
 
         // increment pending bytes after adding message to the unflushed arrays.
         // See https://github.com/netty/netty/issues/1619
         incrementPendingOutboundBytes(size);
     }
 
-    protected abstract int addMessage0(Object msg, ChannelPromise promise);
+    protected abstract void addMessage0(Object msg, int estimatedSize, ChannelPromise promise);
 
     /**
      * Mark all messages in this {@link ChannelOutboundBuffer} as flushed.
@@ -144,7 +148,7 @@ public abstract class ChannelOutboundBuffer {
      * Decrement the pending bytes which will be written at some point.
      * This method is thread-safe!
      */
-    final void decrementPendingOutboundBytes(int size) {
+    protected final void decrementPendingOutboundBytes(int size) {
         decrementPendingOutboundBytes(size, true);
     }
 
