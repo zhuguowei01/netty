@@ -27,6 +27,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelMetadata;
 import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelOutboundBuffer;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.nio.AbstractNioMessageChannel;
 import io.netty.channel.sctp.DefaultSctpChannelConfig;
@@ -370,7 +371,7 @@ public class NioSctpChannel extends AbstractNioMessageChannel implements io.nett
         return NioSctpChannelOutboundBuffer.newInstance(this);
     }
 
-    private static final class NioSctpChannelOutboundBuffer extends ChannelOutboundBuffer {
+    private static final class NioSctpChannelOutboundBuffer extends DefaultChannelOutboundBuffer {
         private static final Recycler<NioSctpChannelOutboundBuffer> RECYCLER =
                 new Recycler<NioSctpChannelOutboundBuffer>() {
             @Override
