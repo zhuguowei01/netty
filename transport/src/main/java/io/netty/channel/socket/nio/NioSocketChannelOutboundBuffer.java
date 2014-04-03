@@ -189,10 +189,12 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         MessageEntry entry = buffer[flushed];
         entry.pendingSize -= amount;
 
-        // TODO: Think about it
-        decrementPendingOutboundBytes((int) amount);
+        if (amount > 0) {
+            // TODO: Think about it
+            decrementPendingOutboundBytes((int) amount);
 
-        notifyPromises(amount);
+            notifyPromises(amount);
+        }
     }
 
     @Override
