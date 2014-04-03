@@ -146,6 +146,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     }
 
     private void addPromise(Object msg, ChannelPromise promise) {
+        if (isVoidPromise(promise)) {
+            writeCounter += total(msg);
+            return;
+        }
         ChannelPromiseEntry promiseEntry = promises[promisesTail++];
         promiseEntry.promise = promise;
         promiseEntry.checkpoint = writeCounter;
@@ -278,6 +282,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     }
 
     private long notifyPromises(long amount) {
+        if (promisesHead == promisesTail) {
+            // no promises to notify
+            return amount;
+        }
         for (;;) {
             ChannelPromiseEntry e = promises[promisesHead];
             if (e.promise == null) {
@@ -297,6 +305,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     }
 
     private long failPromises(long amount, Throwable cause) {
+        if (promisesHead == promisesTail) {
+            // no promises to notify
+            return amount;
+        }
         for (;;) {
             ChannelPromiseEntry pe = promises[promisesHead];
             if (pe.promise == null) {

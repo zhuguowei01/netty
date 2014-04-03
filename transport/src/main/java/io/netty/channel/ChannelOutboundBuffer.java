@@ -344,7 +344,7 @@ public abstract class ChannelOutboundBuffer {
      * Try to mark the given {@link ChannelPromise} as success and log if this failed.
      */
     protected static void safeSuccess(ChannelPromise promise) {
-        if (!(promise instanceof VoidChannelPromise) && !promise.trySuccess()) {
+        if (!isVoidPromise(promise) && !promise.trySuccess()) {
             logger.warn("Failed to mark a promise as success because it is done already: {}", promise);
         }
     }
@@ -354,8 +354,12 @@ public abstract class ChannelOutboundBuffer {
      * log if this failed.
      */
     protected static void safeFail(ChannelPromise promise, Throwable cause) {
-        if (!(promise instanceof VoidChannelPromise) && !promise.tryFailure(cause)) {
+        if (!isVoidPromise(promise) && !promise.tryFailure(cause)) {
             logger.warn("Failed to mark a promise as failure because it's done already: {}", promise, cause);
         }
+    }
+
+    protected static boolean isVoidPromise(ChannelPromise promise) {
+        return promise instanceof VoidChannelPromise;
     }
 }
