@@ -277,4 +277,10 @@ public final class EpollSocketChannelConfig extends DefaultChannelConfig
         super.setMessageSizeEstimator(estimator);
         return this;
     }
+
+    @Override
+    public EpollSocketChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
+        return this;
+    }
 }

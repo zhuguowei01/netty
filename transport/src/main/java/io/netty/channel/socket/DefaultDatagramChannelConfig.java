@@ -418,4 +418,10 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
         super.setMessageSizeEstimator(estimator);
         return this;
     }
+
+    @Override
+    public DatagramChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
+        return this;
+    }
 }

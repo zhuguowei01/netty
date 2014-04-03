@@ -19,6 +19,7 @@ package io.netty.channel.sctp;
 import com.sun.nio.sctp.SctpChannel;
 import com.sun.nio.sctp.SctpStandardSocketOptions;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.ChannelConfig;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultChannelConfig;
@@ -230,6 +231,12 @@ public class DefaultSctpChannelConfig extends DefaultChannelConfig implements Sc
     @Override
     public SctpChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
         super.setMessageSizeEstimator(estimator);
+        return this;
+    }
+
+    @Override
+    public SctpChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
         return this;
     }
 }

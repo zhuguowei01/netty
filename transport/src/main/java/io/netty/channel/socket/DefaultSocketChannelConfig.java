@@ -63,7 +63,7 @@ public class DefaultSocketChannelConfig extends DefaultChannelConfig
         return getOptions(
                 super.getOptions(),
                 SO_RCVBUF, SO_SNDBUF, TCP_NODELAY, SO_KEEPALIVE, SO_REUSEADDR, SO_LINGER, IP_TOS,
-                ALLOW_HALF_CLOSURE);
+                ALLOW_HALF_CLOSURE, WRITE_BUFFER_MERGE_THRESHOLD);
     }
 
     @SuppressWarnings("unchecked")
@@ -336,6 +336,12 @@ public class DefaultSocketChannelConfig extends DefaultChannelConfig
     @Override
     public SocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
         super.setMessageSizeEstimator(estimator);
+        return this;
+    }
+
+    @Override
+    public SocketChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
         return this;
     }
 }

@@ -20,6 +20,7 @@
 package io.netty.channel.socket.nio;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.AbstractChannel;
 import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPromise;
 import io.netty.util.Recycler;
@@ -65,9 +66,9 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
 
     /**
      * Get a new instance of this {@link NioSocketChannelOutboundBuffer} and attach it the given
-     * {@link NioSocketChannel}
+     * {@link io.netty.channel.socket.SocketChannel}
      */
-    public static NioSocketChannelOutboundBuffer newInstance(NioSocketChannel channel) {
+    public static NioSocketChannelOutboundBuffer newInstance(AbstractChannel channel) {
         NioSocketChannelOutboundBuffer buffer = RECYCLER.get();
         buffer.channel = channel;
         return buffer;
@@ -93,7 +94,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     public void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
-            int threshold = (int) ((NioSocketChannel) channel).config().getWriteBufferMergeThreshold();
+            int threshold = channel.config().getWriteBufferMergeThreshold();
             if (threshold > 0) {
                 MessageEntry last = buffer[tail - 1 & buffer.length - 1];
                 Object lastMsg;

@@ -22,6 +22,7 @@ import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.socket.DefaultSocketChannelConfig;
 import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.SocketChannelConfig;
 
 import java.io.IOException;
 import java.net.Socket;
@@ -194,6 +195,12 @@ public class DefaultOioSocketChannelConfig extends DefaultSocketChannelConfig im
     @Override
     public OioSocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
         super.setMessageSizeEstimator(estimator);
+        return this;
+    }
+
+    @Override
+    public OioSocketChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
         return this;
     }
 }

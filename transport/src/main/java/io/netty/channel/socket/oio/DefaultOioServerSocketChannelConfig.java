@@ -168,4 +168,10 @@ public class DefaultOioServerSocketChannelConfig extends DefaultServerSocketChan
         super.setMessageSizeEstimator(estimator);
         return this;
     }
+
+    @Override
+    public OioServerSocketChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
+        return this;
+    }
 }

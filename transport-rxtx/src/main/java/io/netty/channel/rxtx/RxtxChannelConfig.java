@@ -299,4 +299,7 @@ public interface RxtxChannelConfig extends ChannelConfig {
 
     @Override
     RxtxChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
+
+    @Override
+    RxtxChannelConfig setWriteBufferMergeThreshold(int threshold);
 }

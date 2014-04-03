@@ -215,4 +215,10 @@ public class DefaultSctpServerChannelConfig extends DefaultChannelConfig impleme
         super.setMessageSizeEstimator(estimator);
         return this;
     }
+
+    @Override
+    public SctpServerChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
+        return this;
+    }
 }

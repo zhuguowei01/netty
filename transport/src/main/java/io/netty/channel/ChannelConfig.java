@@ -238,6 +238,10 @@ public interface ChannelConfig {
      */
     ChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
 
+    ChannelConfig setWriteBufferMergeThreshold(int threshold);
+
+    int getWriteBufferMergeThreshold();
+
     /**
      * Returns {@link MessageSizeEstimator} which is used for the channel
      * to detect the size of a message.

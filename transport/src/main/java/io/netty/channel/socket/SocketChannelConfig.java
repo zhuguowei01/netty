@@ -180,4 +180,13 @@ public interface SocketChannelConfig extends ChannelConfig {
 
     @Override
     SocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
+
+    @Override
+    SocketChannelConfig setWriteBufferMergeThreshold(int threshold);
+
+    @Override
+    SocketChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
+
+    @Override
+    SocketChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark);
 }

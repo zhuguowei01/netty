@@ -48,6 +48,7 @@ public class DefaultChannelConfig implements ChannelConfig {
     private volatile boolean autoClose = true;
     private volatile int writeBufferHighWaterMark = 64 * 1024;
     private volatile int writeBufferLowWaterMark = 32 * 1024;
+    private volatile int mergeThreshold;
 
     public DefaultChannelConfig(Channel channel) {
         if (channel == null) {
@@ -73,7 +74,7 @@ public class DefaultChannelConfig implements ChannelConfig {
                 null,
                 CONNECT_TIMEOUT_MILLIS, MAX_MESSAGES_PER_READ, WRITE_SPIN_COUNT,
                 ALLOCATOR, AUTO_READ, AUTO_CLOSE, RCVBUF_ALLOCATOR, WRITE_BUFFER_HIGH_WATER_MARK,
-                WRITE_BUFFER_LOW_WATER_MARK, MESSAGE_SIZE_ESTIMATOR);
+                WRITE_BUFFER_LOW_WATER_MARK, MESSAGE_SIZE_ESTIMATOR, WRITE_BUFFER_MERGE_THRESHOLD);
     }
 
     protected Map<ChannelOption<?>, Object> getOptions(
@@ -141,6 +142,9 @@ public class DefaultChannelConfig implements ChannelConfig {
         if (option == MESSAGE_SIZE_ESTIMATOR) {
             return (T) getMessageSizeEstimator();
         }
+        if (option == WRITE_BUFFER_MERGE_THRESHOLD) {
+            return (T) Integer.valueOf(getWriteBufferMergeThreshold());
+        }
         return null;
     }
 
@@ -169,6 +173,8 @@ public class DefaultChannelConfig implements ChannelConfig {
             setWriteBufferLowWaterMark((Integer) value);
         } else if (option == MESSAGE_SIZE_ESTIMATOR) {
             setMessageSizeEstimator((MessageSizeEstimator) value);
+        } else if (option == WRITE_BUFFER_MERGE_THRESHOLD) {
+            setWriteBufferMergeThreshold((Integer) value);
         } else {
             return false;
         }
@@ -335,5 +341,16 @@ public class DefaultChannelConfig implements ChannelConfig {
         }
         msgSizeEstimator = estimator;
         return this;
+    }
+
+    @Override
+    public ChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        this.mergeThreshold = mergeThreshold;
+        return this;
+    }
+
+    @Override
+    public int getWriteBufferMergeThreshold() {
+        return mergeThreshold;
     }
 }

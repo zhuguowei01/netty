@@ -126,4 +126,7 @@ public interface SctpChannelConfig extends ChannelConfig {
 
     @Override
     SctpChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
+
+    @Override
+    SctpChannelConfig setWriteBufferMergeThreshold(int threshold);
 }

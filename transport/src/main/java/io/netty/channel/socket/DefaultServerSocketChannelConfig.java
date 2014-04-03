@@ -198,4 +198,16 @@ public class DefaultServerSocketChannelConfig extends DefaultChannelConfig
         super.setMessageSizeEstimator(estimator);
         return this;
     }
+
+    @Override
+    public ServerSocketChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setAutoClose(boolean autoClose) {
+        super.setAutoClose(autoClose);
+        return this;
+    }
 }

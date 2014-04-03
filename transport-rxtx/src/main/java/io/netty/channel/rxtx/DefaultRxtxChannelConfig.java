@@ -16,6 +16,7 @@
 package io.netty.channel.rxtx;
 
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.ChannelConfig;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultChannelConfig;
 import io.netty.channel.MessageSizeEstimator;
@@ -255,6 +256,12 @@ final class DefaultRxtxChannelConfig extends DefaultChannelConfig implements Rxt
     @Override
     public RxtxChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
         super.setMessageSizeEstimator(estimator);
+        return this;
+    }
+
+    @Override
+    public RxtxChannelConfig setWriteBufferMergeThreshold(int mergeThreshold) {
+        super.setWriteBufferMergeThreshold(mergeThreshold);
         return this;
     }
 }

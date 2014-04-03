@@ -107,4 +107,7 @@ public interface OioSocketChannelConfig extends SocketChannelConfig {
 
     @Override
     OioSocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
+
+    @Override
+    OioSocketChannelConfig setWriteBufferMergeThreshold(int threshold);
 }

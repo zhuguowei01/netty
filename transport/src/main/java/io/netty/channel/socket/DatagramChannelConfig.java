@@ -179,4 +179,13 @@ public interface DatagramChannelConfig extends ChannelConfig {
 
     @Override
     DatagramChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
+
+    @Override
+    DatagramChannelConfig setWriteBufferMergeThreshold(int threshold);
+
+    @Override
+    DatagramChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
+
+    @Override
+    DatagramChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark);
 }

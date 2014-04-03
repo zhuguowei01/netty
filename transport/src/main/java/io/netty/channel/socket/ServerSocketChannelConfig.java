@@ -104,4 +104,13 @@ public interface ServerSocketChannelConfig extends ChannelConfig {
 
     @Override
     ServerSocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
+
+    @Override
+    ServerSocketChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
+
+    @Override
+    ServerSocketChannelConfig setWriteBufferMergeThreshold(int threshold);
+
+    @Override
+    ServerSocketChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark);
 }
