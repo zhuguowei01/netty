@@ -48,7 +48,7 @@ public class DefaultChannelConfig implements ChannelConfig {
     private volatile boolean autoClose = true;
     private volatile int writeBufferHighWaterMark = 64 * 1024;
     private volatile int writeBufferLowWaterMark = 32 * 1024;
-    private volatile int mergeThreshold;
+    private volatile int mergeThreshold = 16 * 1024;
 
     public DefaultChannelConfig(Channel channel) {
         if (channel == null) {

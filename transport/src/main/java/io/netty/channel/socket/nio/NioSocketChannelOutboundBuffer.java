@@ -111,7 +111,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                         last.pendingSize += estimatedSize;
                         addPromise(msg, promise);
                         return;
-                    } else if (writableBytes + readableBytes <= threshold) {
+                    } else if (lastBuf.readableBytes() + readableBytes <= threshold) {
                         // create a new buffer and merge both if they fit in
                         ByteBuf mergeBuf = channel.alloc().directBuffer(threshold);
                         mergeBuf.writeBytes(lastBuf);
