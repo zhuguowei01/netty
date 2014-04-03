@@ -17,9 +17,8 @@ package io.netty.channel.socket.nio;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
-import io.netty.channel.AbstractChannel;
 import io.netty.channel.ChannelOutboundBuffer;
-import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.CharsetUtil;
 import org.junit.Test;
 
@@ -32,7 +31,9 @@ public class NioSocketChannelOutboundBufferTest {
 
     @Test
     public void testEmptyNioBuffers() {
-        AbstractChannel channel = new EmbeddedChannel();
+        NioEventLoopGroup group = new NioEventLoopGroup();
+        NioSocketChannel channel = new NioSocketChannel();
+        group.register(channel).syncUninterruptibly();
         NioSocketChannelOutboundBuffer buffer = NioSocketChannelOutboundBuffer.newInstance(channel);
         assertEquals(0, buffer.nioBufferCount());
         ByteBuffer[] buffers = buffer.nioBuffers();
@@ -42,11 +43,15 @@ public class NioSocketChannelOutboundBufferTest {
         }
         assertEquals(0, buffer.nioBufferCount());
         release(buffer);
+        channel.close();
+        group.shutdownGracefully();
     }
 
     @Test
     public void testNioBuffersSingleBacked() {
-        AbstractChannel channel = new EmbeddedChannel();
+        NioEventLoopGroup group = new NioEventLoopGroup();
+        NioSocketChannel channel = new NioSocketChannel();
+        group.register(channel).syncUninterruptibly();
         NioSocketChannelOutboundBuffer buffer = NioSocketChannelOutboundBuffer.newInstance(channel);
         assertEquals(0, buffer.nioBufferCount());
         ByteBuffer[] buffers = buffer.nioBuffers();
@@ -76,11 +81,15 @@ public class NioSocketChannelOutboundBufferTest {
             }
         }
         release(buffer);
+        channel.close();
+        group.shutdownGracefully();
     }
 
     @Test
     public void testNioBuffersExpand() {
-        AbstractChannel channel = new EmbeddedChannel();
+        NioEventLoopGroup group = new NioEventLoopGroup();
+        NioSocketChannel channel = new NioSocketChannel();
+        group.register(channel).syncUninterruptibly();
         NioSocketChannelOutboundBuffer buffer = NioSocketChannelOutboundBuffer.newInstance(channel);
 
         ByteBuf buf = directBuffer().writeBytes("buf1".getBytes(CharsetUtil.US_ASCII));
@@ -101,11 +110,15 @@ public class NioSocketChannelOutboundBufferTest {
         }
         release(buffer);
         buf.release();
+        channel.close();
+        group.shutdownGracefully();
     }
 
     @Test
     public void testNioBuffersExpand2() {
-        AbstractChannel channel = new EmbeddedChannel();
+        NioEventLoopGroup group = new NioEventLoopGroup();
+        NioSocketChannel channel = new NioSocketChannel();
+        group.register(channel).syncUninterruptibly();
         NioSocketChannelOutboundBuffer buffer = NioSocketChannelOutboundBuffer.newInstance(channel);
 
         CompositeByteBuf comp = compositeBuffer(256);
@@ -133,6 +146,8 @@ public class NioSocketChannelOutboundBufferTest {
         }
         release(buffer);
         buf.release();
+        channel.close();
+        group.shutdownGracefully();
     }
 
     private static void release(ChannelOutboundBuffer buffer) {

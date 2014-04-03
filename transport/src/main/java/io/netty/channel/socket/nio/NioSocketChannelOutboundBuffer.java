@@ -20,7 +20,6 @@
 package io.netty.channel.socket.nio;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.AbstractChannel;
 import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPromise;
 import io.netty.util.Recycler;
@@ -65,9 +64,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     };
 
     /**
-     * Get a new instance of this {@link NioSocketChannelOutboundBuffer} and attach it the given {@link AbstractChannel}
+     * Get a new instance of this {@link NioSocketChannelOutboundBuffer} and attach it the given
+     * {@link NioSocketChannel}
      */
-    public static NioSocketChannelOutboundBuffer newInstance(AbstractChannel channel) {
+    public static NioSocketChannelOutboundBuffer newInstance(NioSocketChannel channel) {
         NioSocketChannelOutboundBuffer buffer = RECYCLER.get();
         buffer.channel = channel;
         return buffer;
@@ -93,25 +93,40 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     public void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
-            long threshold = ((NioSocketChannel) channel).config().getWriteBufferMergeThreshold();
+            int threshold = (int) ((NioSocketChannel) channel).config().getWriteBufferMergeThreshold();
             if (threshold > 0) {
                 MessageEntry last = buffer[tail - 1 & buffer.length - 1];
                 Object lastMsg;
                 if (!last.flushed && (lastMsg = last.msg) instanceof ByteBuf) {
+                    // Seems like the last message was not flushed yet and holds a ByteBuf.
+                    // Try to merge buffers if possible.
                     ByteBuf lastBuf = (ByteBuf) lastMsg;
-                    if (lastBuf.isWritable(buf.readableBytes())) {
+                    int writableBytes = lastBuf.writableBytes();
+                    int readableBytes = buf.readableBytes();
+                    if (writableBytes >= readableBytes) {
                         // fits in the previous buffer so just merge it into it
                         lastBuf.writeBytes(buf);
                         safeRelease(buf);
                         last.pendingSize += estimatedSize;
                         addPromise(msg, promise);
                         return;
-                    } else {
-                        // create a new buffer and merge both if fit in
+                    } else if (writableBytes + readableBytes <= threshold) {
+                        // create a new buffer and merge both if they fit in
+                        ByteBuf mergeBuf = channel.alloc().directBuffer(threshold);
+                        mergeBuf.writeBytes(lastBuf);
+                        safeRelease(lastBuf);
+                        mergeBuf.writeBytes(buf);
+                        safeRelease(buf);
+                        last.msg = mergeBuf;
+                        last.count = -1;
+                        last.buf = null;
+                        last.buffers = null;
+                        last.pendingSize += estimatedSize;
+                        addPromise(msg, promise);
+                        return;
                     }
                 }
             }
-            // TODO: Merge buffers if configured
             if (!buf.isDirect()) {
                 msg = copyToDirectByteBuf(buf);
             }
