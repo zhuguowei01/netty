@@ -92,8 +92,26 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     @Override
     public void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         if (msg instanceof ByteBuf) {
-            // TODO: Merge buffers if configured
             ByteBuf buf = (ByteBuf) msg;
+            long threshold = ((NioSocketChannel) channel).config().getWriteBufferMergeThreshold();
+            if (threshold > 0) {
+                MessageEntry last = buffer[tail - 1 & buffer.length - 1];
+                Object lastMsg;
+                if (!last.flushed && (lastMsg = last.msg) instanceof ByteBuf) {
+                    ByteBuf lastBuf = (ByteBuf) lastMsg;
+                    if (lastBuf.isWritable(buf.readableBytes())) {
+                        // fits in the previous buffer so just merge it into it
+                        lastBuf.writeBytes(buf);
+                        safeRelease(buf);
+                        last.pendingSize += estimatedSize;
+                        addPromise(msg, promise);
+                        return;
+                    } else {
+                        // create a new buffer and merge both if fit in
+                    }
+                }
+            }
+            // TODO: Merge buffers if configured
             if (!buf.isDirect()) {
                 msg = copyToDirectByteBuf(buf);
             }
@@ -108,7 +126,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         if (tail == flushed) {
             addCapacity();
         }
+        addPromise(msg, promise);
+    }
 
+    private void addPromise(Object msg, ChannelPromise promise) {
         ChannelPromiseEntry promiseEntry = promises[promisesTail++];
         promiseEntry.promise = promise;
         promiseEntry.checkpoint = writeCounter;
@@ -176,6 +197,19 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     @Override
     public void addFlush() {
         unflushed = tail;
+
+        final MessageEntry[] buffer = this.buffer;
+        final int mask = buffer.length - 1;
+        int unflushed = this.unflushed;
+        int i = flushed;
+        while (i != unflushed) {
+            MessageEntry entry = buffer[i];
+            if (entry.msg == null) {
+                break;
+            }
+            entry.flushed = true;
+            i = i + 1 & mask;
+        }
     }
 
     @Override
@@ -454,6 +488,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         ByteBuffer[] buffers;
         ByteBuffer buf;
         int count = -1;
+        boolean flushed;
 
         /**
          * Clear this {@link MessageEntry} and so release all resources.
@@ -468,6 +503,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
             buffers = null;
             buf = null;
             count = -1;
+            flushed = false;
             return size;
         }
     }
