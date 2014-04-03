@@ -34,7 +34,7 @@ import java.util.Arrays;
  * allow efficent gathering writes.
  */
 public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer {
-    private static final int INITIAL_CAPACITY = 128;
+    private static final int INITIAL_CAPACITY = 32;
 
     private final Recycler.Handle<NioSocketChannelOutboundBuffer> handle;
 
