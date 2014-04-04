@@ -102,26 +102,10 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                     // Seems like the last message was not flushed yet and holds a ByteBuf.
                     // Try to merge buffers if possible.
                     ByteBuf lastBuf = (ByteBuf) lastMsg;
-                    int writableBytes = lastBuf.writableBytes();
-                    int readableBytes = buf.readableBytes();
-                    if (writableBytes >= readableBytes) {
+                    if (lastBuf.isWritable(buf.readableBytes())) {
                         // fits in the previous buffer so just merge it into it
                         lastBuf.writeBytes(buf);
                         safeRelease(buf);
-                        last.pendingSize += estimatedSize;
-                        addPromise(msg, promise);
-                        return;
-                    } else if (lastBuf.readableBytes() + readableBytes <= threshold) {
-                        // create a new buffer and merge both if they fit in
-                        ByteBuf mergeBuf = channel.alloc().directBuffer(threshold);
-                        mergeBuf.writeBytes(lastBuf);
-                        safeRelease(lastBuf);
-                        mergeBuf.writeBytes(buf);
-                        safeRelease(buf);
-                        last.msg = mergeBuf;
-                        last.count = -1;
-                        last.buf = null;
-                        last.buffers = null;
                         last.pendingSize += estimatedSize;
                         addPromise(msg, promise);
                         return;
@@ -244,9 +228,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         entry.pendingSize -= amount;
 
         if (amount > 0) {
-            // TODO: Think about it
             decrementPendingOutboundBytes((int) amount);
-
             notifyPromises(amount);
         }
     }
@@ -360,6 +342,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
             tail = unflushed;
         }
         failPromises(size, cause);
+
         return size;
     }
 
