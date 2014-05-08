@@ -17,13 +17,15 @@ package io.netty.channel.socket.nio;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelOutboundBuffer;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelOutboundBuffer;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.util.Recycler;
 
 /**
  * Special {@link ChannelOutboundBuffer} for {@link NioDatagramChannel} implementations.
  */
-final class NioDatagramChannelOutboundBuffer extends ChannelOutboundBuffer {
+final class NioDatagramChannelOutboundBuffer extends DefaultChannelOutboundBuffer {
     private static final Recycler<NioDatagramChannelOutboundBuffer> RECYCLER =
             new Recycler<NioDatagramChannelOutboundBuffer>() {
                 @Override
@@ -51,15 +53,15 @@ final class NioDatagramChannelOutboundBuffer extends ChannelOutboundBuffer {
      * will do the conversation itself and we can do a better job here.
      */
     @Override
-    protected Object beforeAdd(Object msg) {
+    protected void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         if (msg instanceof DatagramPacket) {
             DatagramPacket packet = (DatagramPacket) msg;
             ByteBuf content = packet.content();
             if (!content.isDirect() || content.nioBufferCount() != 1) {
                 ByteBuf direct = copyToDirectByteBuf(content);
-                return new DatagramPacket(direct, packet.recipient(), packet.sender());
+                msg = new DatagramPacket(direct, packet.recipient(), packet.sender());
             }
         }
-        return msg;
+        super.addMessage0(msg, estimatedSize, promise);
     }
 }

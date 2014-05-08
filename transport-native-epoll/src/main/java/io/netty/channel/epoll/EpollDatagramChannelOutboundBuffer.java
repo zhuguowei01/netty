@@ -17,10 +17,12 @@ package io.netty.channel.epoll;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelOutboundBuffer;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelOutboundBuffer;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.util.Recycler;
 
-final class EpollDatagramChannelOutboundBuffer extends ChannelOutboundBuffer {
+final class EpollDatagramChannelOutboundBuffer extends DefaultChannelOutboundBuffer {
     private static final Recycler<EpollDatagramChannelOutboundBuffer> RECYCLER =
             new Recycler<EpollDatagramChannelOutboundBuffer>() {
         @Override
@@ -40,13 +42,13 @@ final class EpollDatagramChannelOutboundBuffer extends ChannelOutboundBuffer {
     }
 
     @Override
-    protected Object beforeAdd(Object msg) {
+    protected void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         if (msg instanceof DatagramPacket) {
             DatagramPacket packet = (DatagramPacket) msg;
             ByteBuf content = packet.content();
             if (isCopyNeeded(content)) {
                 ByteBuf direct = copyToDirectByteBuf(content);
-                return new DatagramPacket(direct, packet.recipient(), packet.sender());
+                msg = new DatagramPacket(direct, packet.recipient(), packet.sender());
             }
         } else if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
@@ -54,7 +56,7 @@ final class EpollDatagramChannelOutboundBuffer extends ChannelOutboundBuffer {
                 msg = copyToDirectByteBuf((ByteBuf) msg);
             }
         }
-        return msg;
+        super.addMessage0(msg, estimatedSize, promise);
     }
 
     private static boolean isCopyNeeded(ByteBuf content) {
