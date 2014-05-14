@@ -121,7 +121,7 @@ public abstract class ChannelOutboundBuffer {
      * Decrement the pending bytes which will be written at some point.
      * This method is thread-safe!
      */
-    final void decrementPendingOutboundBytes(int size) {
+    protected final void decrementPendingOutboundBytes(int size) {
         // Cache the channel and check for null to make sure we not produce a NPE in case of the Channel gets
         // recycled while process this method.
         Channel channel = this.channel;

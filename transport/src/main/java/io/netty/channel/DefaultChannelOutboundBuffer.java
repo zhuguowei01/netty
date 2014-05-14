@@ -23,7 +23,6 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.Recycler;
 
 import java.nio.channels.ClosedChannelException;
-import java.util.Arrays;
 
 public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
 
@@ -55,7 +54,6 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
     private int flushed;
     private int unflushed;
     private int tail;
-    private ChannelPromise[] promises = new ChannelPromise[INITIAL_CAPACITY];
 
     protected DefaultChannelOutboundBuffer(Recycler.Handle<? extends ChannelOutboundBuffer> handle) {
         this.handle = handle;
@@ -75,12 +73,12 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
 
     @Override
     protected void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
-        Entry e = buffer[tail];
+        Entry e = buffer[tail++];
         e.msg = msg;
         e.pendingSize = estimatedSize;
+        e.promise = promise;
         e.total = total(msg);
-        promises[tail] = promise;
-        tail++;
+
         tail &= buffer.length - 1;
 
         if (tail == flushed) {
@@ -113,10 +111,6 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
         flushed = 0;
         unflushed = s;
         tail = n;
-
-        ChannelPromise[] pr = new ChannelPromise[newCapacity];
-        System.arraycopy(promises, 0, pr, 0, promises.length);
-        promises = pr;
     }
 
     @Override
@@ -127,8 +121,7 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
         int i = flushed;
         while (i != unflushed && buffer[i].msg != null) {
             Entry entry = buffer[i];
-            ChannelPromise promise = promises[i];
-            if (!promise.setUncancellable()) {
+            if (!entry.promise.setUncancellable()) {
                 // Was cancelled so make sure we free up memory and notify about the freed bytes
                 int pending = entry.cancel();
                 decrementPendingOutboundBytes(pending);
@@ -149,9 +142,9 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
 
     @Override
     public final void progress(long amount) {
-        ChannelPromise p = promises[flushed];
+        Entry e = buffer[flushed];
+        ChannelPromise p = e.promise;
         if (p instanceof ChannelProgressivePromise) {
-            Entry e = buffer[flushed];
             long progress = e.progress + amount;
             e.progress = progress;
             ((ChannelProgressivePromise) p).tryProgress(progress, e.total);
@@ -163,8 +156,7 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
 
         Entry e = buffer[flushed];
         Object msg = e.msg;
-        ChannelPromise promise = promises[flushed];
-        promises[flushed] = null;
+        ChannelPromise promise = e.promise;
         int size = e.pendingSize;
 
         e.clear();
@@ -185,8 +177,7 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
     protected int remove0(Throwable cause) {
         Entry e = buffer[flushed];
         Object msg = e.msg;
-        ChannelPromise promise = promises[flushed];
-        promises[flushed] = null;
+        ChannelPromise promise = e.promise;
         int size = e.pendingSize;
 
         e.clear();
@@ -221,18 +212,17 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
         try {
             int size = 0;
             for (int i = 0; i < unflushedCount; i++) {
-                int index = unflushed + i & buffer.length - 1;
-                Entry e = buffer[index];
+                Entry e = buffer[unflushed + i & buffer.length - 1];
 
                 size += e.pendingSize;
 
                 e.pendingSize = 0;
                 if (!e.cancelled) {
                     safeRelease(e.msg);
-                    safeFail(promises[index], cause);
+                    safeFail(e.promise, cause);
                 }
                 e.msg = null;
-                promises[index] = null;
+                e.promise = null;
             }
             return size;
         } finally {
@@ -255,12 +245,6 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
         flushed = 0;
         unflushed = 0;
         tail = 0;
-
-        if (promises.length > INITIAL_CAPACITY) {
-            promises = new ChannelPromise[INITIAL_CAPACITY];
-        } else {
-            Arrays.fill(promises, null);
-        }
 
         RECYCLER.recycle(this, (Recycler.Handle<DefaultChannelOutboundBuffer>) handle);
     }
@@ -289,6 +273,7 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
 
     protected static class Entry {
         Object msg;
+        ChannelPromise promise;
         long progress;
         long total;
         int pendingSize;
@@ -333,6 +318,7 @@ public class DefaultChannelOutboundBuffer extends ChannelOutboundBuffer {
          */
         public void clear() {
             msg = null;
+            promise = null;
             progress = 0;
             total = 0;
             pendingSize = 0;
