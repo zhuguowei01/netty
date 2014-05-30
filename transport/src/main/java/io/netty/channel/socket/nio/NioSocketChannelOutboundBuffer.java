@@ -22,8 +22,8 @@ package io.netty.channel.socket.nio;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.AbstractChannel;
+import io.netty.channel.ChannelFlushPromiseNotifier;
 import io.netty.channel.ChannelOutboundBuffer;
-import io.netty.channel.ChannelProgressivePromise;
 import io.netty.channel.ChannelPromise;
 import io.netty.util.Recycler;
 
@@ -61,6 +61,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     private long nioBufferSize;
 
     private final Recycler.Handle<NioSocketChannelOutboundBuffer> handle;
+    private final ChannelFlushPromiseNotifier promiseNotifier;
 
     // A circular buffer used to store messages.  The buffer is arranged such that:  flushed <= unflushed <= tail.  The
     // flushed messages are stored in the range [flushed, unflushed).  Unflushed messages are stored in the range
@@ -70,7 +71,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     private int unflushed;
     private int tail;
 
-    private ChannelPromise[] promises = new ChannelPromise[INITIAL_CAPACITY];
+    private Entry lastEntry;
 
     protected NioSocketChannelOutboundBuffer(Recycler.Handle<NioSocketChannelOutboundBuffer> handle) {
         this.handle = handle;
@@ -80,27 +81,37 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
             buffer[i] = new Entry();
         }
         nioBuffers = new ByteBuffer[INITIAL_CAPACITY];
+        promiseNotifier = new ChannelFlushPromiseNotifier(true, INITIAL_CAPACITY);
     }
 
     @Override
     protected void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
+        promiseNotifier.add(promise, estimatedSize);
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
+            /*if (lastEntry != null && !lastEntry.flushed && lastEntry.msg instanceof ByteBuf) {
+                ByteBuf lastBuf = (ByteBuf) lastEntry.msg;
+                if (lastBuf.isWritable(buf.readableBytes())) {
+                    lastBuf.writeBytes(buf);
+                    safeRelease(buf);
+                    return;
+                }
+            }*/
             if (!buf.isDirect()) {
                 msg = copyToDirectByteBuf(buf);
             }
         }
-        Entry e = buffer[tail];
+        Entry e = buffer[tail++];
         e.msg = msg;
         e.pendingSize = estimatedSize;
         e.total = total(msg);
-        promises[tail] = promise;
-        tail++;
         tail &= buffer.length - 1;
 
         if (tail == flushed) {
             addCapacity();
         }
+
+        lastEntry = e;
     }
 
     /**
@@ -128,10 +139,6 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         flushed = 0;
         unflushed = s;
         tail = n;
-
-        ChannelPromise[] pr = new ChannelPromise[newCapacity];
-        System.arraycopy(promises, 0, pr, 0, promises.length);
-        promises = pr;
     }
 
     @Override
@@ -142,12 +149,13 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         int i = flushed;
         while (i != unflushed && buffer[i].msg != null) {
             Entry entry = buffer[i];
-            ChannelPromise promise = promises[i];
+            entry.flushed = true;
+            /*ChannelPromise promise = promises[i].promise();
             if (!promise.setUncancellable()) {
                 // Was cancelled so make sure we free up memory and notify about the freed bytes
                 int pending = entry.cancel();
                 decrementPendingOutboundBytes(pending);
-            }
+            }*/
             i = i + 1 & mask;
         }
     }
@@ -164,32 +172,37 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
 
     @Override
     public void progress(long amount) {
-        ChannelPromise p = promises[flushed];
-        if (p instanceof ChannelProgressivePromise) {
-            Entry e = buffer[flushed];
-            long progress = e.progress + amount;
-            e.progress = progress;
-            ((ChannelProgressivePromise) p).tryProgress(progress, e.total);
+        increaseAndNotify(amount, null);
+        Entry e = buffer[flushed];
+        long progress = e.progress + amount;
+        e.progress = progress;
+    }
+
+    private void increaseAndNotify(long amount, Throwable cause) {
+        if (amount > 0) {
+            promiseNotifier.increaseWriteCounter(amount);
+            if (cause == null) {
+                promiseNotifier.notifyFlushFutures();
+            } else {
+                promiseNotifier.notifyFlushFutures(cause);
+            }
         }
     }
 
     @Override
     protected int remove0() {
-
         Entry e = buffer[flushed];
         Object msg = e.msg;
-        ChannelPromise promise = promises[flushed];
-        promises[flushed] = null;
         int size = e.pendingSize;
 
         e.clear();
 
         flushed = flushed + 1 & buffer.length - 1;
 
+        increaseAndNotify(size, null);
         if (!e.cancelled) {
             // only release message, notify and decrement if it was not canceled before.
             safeRelease(msg);
-            safeSuccess(promise);
             return size;
         }
 
@@ -200,19 +213,19 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     protected int remove0(Throwable cause) {
         Entry e = buffer[flushed];
         Object msg = e.msg;
-        ChannelPromise promise = promises[flushed];
-        promises[flushed] = null;
         int size = e.pendingSize;
 
         e.clear();
 
         flushed = flushed + 1 & buffer.length - 1;
 
+        increaseAndNotify(size, cause);
+
         if (!e.cancelled) {
             // only release message, fail and decrement if it was not canceled before.
             safeRelease(msg);
 
-            safeFail(promise, cause);
+            promiseNotifier.notifyFlushFutures(cause);
             return size;
         }
 
@@ -244,11 +257,11 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                 e.pendingSize = 0;
                 if (!e.cancelled) {
                     safeRelease(e.msg);
-                    safeFail(promises[index], cause);
+                    //safeFail(promises[index].promise(), cause);
                 }
                 e.msg = null;
-                promises[index] = null;
             }
+            promiseNotifier.notifyFlushFutures(cause);
             return size;
         } finally {
             tail = unflushed;
@@ -271,11 +284,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         unflushed = 0;
         tail = 0;
 
-        if (promises.length > INITIAL_CAPACITY) {
-            promises = new ChannelPromise[INITIAL_CAPACITY];
-        } else {
-            Arrays.fill(promises, null);
-        }
+        promiseNotifier.reset();
 
         // take care of recycle the ByteBuffer[] structure.
         if (nioBuffers.length > INITIAL_CAPACITY) {
@@ -298,6 +307,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         int pendingSize;
         int count = -1;
         boolean cancelled;
+        boolean flushed;
 
         public Object msg() {
             return msg;
@@ -349,6 +359,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
             pendingSize = 0;
             count = -1;
             cancelled = false;
+            flushed = false;
         }
     }
 

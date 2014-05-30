@@ -31,6 +31,7 @@ public class DefaultChannelProgressivePromise
 
     private final Channel channel;
     private long checkpoint;
+    private long pendingDataSize;
 
     /**
      * Creates a new instance.
@@ -158,6 +159,16 @@ public class DefaultChannelProgressivePromise
     @Override
     public ChannelProgressivePromise promise() {
         return this;
+    }
+
+    @Override
+    public long pendingDataSize() {
+        return pendingDataSize;
+    }
+
+    @Override
+    public void pendingDataSize(long pendingDataSize) {
+        this.pendingDataSize = pendingDataSize;
     }
 
     @Override

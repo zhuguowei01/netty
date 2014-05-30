@@ -29,6 +29,7 @@ public class DefaultChannelPromise extends DefaultPromise<Void> implements Chann
 
     private final Channel channel;
     private long checkpoint;
+    private long pendingDataSize;
 
     /**
      * Creates a new instance.
@@ -149,6 +150,16 @@ public class DefaultChannelPromise extends DefaultPromise<Void> implements Chann
     @Override
     public ChannelPromise promise() {
         return this;
+    }
+
+    @Override
+    public long pendingDataSize() {
+        return pendingDataSize;
+    }
+
+    @Override
+    public void pendingDataSize(long pendingDataSize) {
+        this.pendingDataSize = pendingDataSize;
     }
 
     @Override

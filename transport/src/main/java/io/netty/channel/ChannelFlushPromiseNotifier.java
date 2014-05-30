@@ -15,8 +15,7 @@
  */
 package io.netty.channel;
 
-import java.util.ArrayDeque;
-import java.util.Queue;
+import java.util.Arrays;
 
 /**
  * This implementation allows to register {@link ChannelFuture} instances which will get notified once some amount of
@@ -25,8 +24,11 @@ import java.util.Queue;
 public final class ChannelFlushPromiseNotifier {
 
     private long writeCounter;
-    private final Queue<FlushCheckpoint> flushCheckpoints = new ArrayDeque<FlushCheckpoint>();
+    private FlushCheckpoint[] flushCheckpoints;
+    private int head;
+    private int tail;
     private final boolean tryNotify;
+    private final int initialCapacity;
 
     /**
      * Create a new instance
@@ -37,7 +39,13 @@ public final class ChannelFlushPromiseNotifier {
      *                  is used
      */
     public ChannelFlushPromiseNotifier(boolean tryNotify) {
+        this(tryNotify, 16);
+    }
+
+    public ChannelFlushPromiseNotifier(boolean tryNotify, int initialCapacity) {
         this.tryNotify = tryNotify;
+        flushCheckpoints = new FlushCheckpoint[powerOfTwo(initialCapacity)];
+        this.initialCapacity = flushCheckpoints.length;
     }
 
     /**
@@ -59,13 +67,31 @@ public final class ChannelFlushPromiseNotifier {
         if (pendingDataSize < 0) {
             throw new IllegalArgumentException("pendingDataSize must be >= 0 but was" + pendingDataSize);
         }
+        if (promise instanceof VoidChannelPromise) {
+            return this;
+        }
         long checkpoint = writeCounter + pendingDataSize;
+        FlushCheckpoint cp;
         if (promise instanceof FlushCheckpoint) {
-            FlushCheckpoint cp = (FlushCheckpoint) promise;
+            cp = (FlushCheckpoint) promise;
             cp.flushCheckpoint(checkpoint);
-            flushCheckpoints.add(cp);
+            cp.pendingDataSize(pendingDataSize);
         } else {
-            flushCheckpoints.add(new DefaultFlushCheckpoint(checkpoint, promise));
+            cp = new DefaultFlushCheckpoint(checkpoint, pendingDataSize, promise);
+        }
+        flushCheckpoints[tail] = cp;
+        tail = nextIdx(tail);
+        if (tail == head) {
+            int s = flushCheckpoints.length;
+            int newCapacity = s << 1;
+            if (newCapacity < 0) {
+                throw new IllegalStateException();
+            }
+            FlushCheckpoint[] checkpoints = new FlushCheckpoint[newCapacity];
+            System.arraycopy(flushCheckpoints, 0, checkpoints, 0, s);
+            flushCheckpoints = checkpoints;
+            head = 0;
+            tail = s;
         }
         return this;
     }
@@ -114,7 +140,7 @@ public final class ChannelFlushPromiseNotifier {
     public ChannelFlushPromiseNotifier notifyFlushFutures(Throwable cause) {
         notifyFlushFutures();
         for (;;) {
-            FlushCheckpoint cp = flushCheckpoints.poll();
+            FlushCheckpoint cp = pollCheckpoint();
             if (cp == null) {
                 break;
             }
@@ -125,6 +151,44 @@ public final class ChannelFlushPromiseNotifier {
             }
         }
         return this;
+    }
+
+    private FlushCheckpoint pollCheckpoint()  {
+        FlushCheckpoint cp = flushCheckpoints[head];
+        if (cp != null) {
+            removeHead();
+        }
+        return cp;
+    }
+
+    private void removeHead() {
+        assert !isEmpty();
+        // null out (to allow GC) and update head index
+        flushCheckpoints[head] = null;
+        head = nextIdx(head);
+    }
+
+    private int nextIdx(int index) {
+        // use bitwise operation as this is faster as using modulo.
+        return (index + 1) & flushCheckpoints.length - 1;
+    }
+
+    public int size()  {
+        return tail - head & flushCheckpoints.length - 1;
+    }
+
+    private static int powerOfTwo(int res) {
+        if (res <= 2) {
+            return 2;
+        }
+        res--;
+        res |= res >> 1;
+        res |= res >> 2;
+        res |= res >> 4;
+        res |= res >> 8;
+        res |= res >> 16;
+        res++;
+        return res;
     }
 
     /**
@@ -146,7 +210,7 @@ public final class ChannelFlushPromiseNotifier {
     public ChannelFlushPromiseNotifier notifyFlushFutures(Throwable cause1, Throwable cause2) {
         notifyFlushFutures0(cause1);
         for (;;) {
-            FlushCheckpoint cp = flushCheckpoints.poll();
+            FlushCheckpoint cp = pollCheckpoint();
             if (cp == null) {
                 break;
             }
@@ -160,14 +224,15 @@ public final class ChannelFlushPromiseNotifier {
     }
 
     private void notifyFlushFutures0(Throwable cause) {
-        if (flushCheckpoints.isEmpty()) {
+        int size = size();
+        if (size == 0) {
             writeCounter = 0;
             return;
         }
 
         final long writeCounter = this.writeCounter;
         for (;;) {
-            FlushCheckpoint cp = flushCheckpoints.peek();
+            FlushCheckpoint cp = flushCheckpoints[head];
             if (cp == null) {
                 // Reset the counter if there's nothing in the notification list.
                 this.writeCounter = 0;
@@ -175,14 +240,21 @@ public final class ChannelFlushPromiseNotifier {
             }
 
             if (cp.flushCheckpoint() > writeCounter) {
-                if (writeCounter > 0 && flushCheckpoints.size() == 1) {
+                long delta = cp.flushCheckpoint() - writeCounter;
+                ChannelPromise p = cp.promise();
+                if (p instanceof ChannelProgressivePromise) {
+                    ((ChannelProgressivePromise) p).tryProgress(delta, cp.pendingDataSize());
+                }
+
+                if (writeCounter > 0 && size == 1) {
                     this.writeCounter = 0;
-                    cp.flushCheckpoint(cp.flushCheckpoint() - writeCounter);
+                    cp.flushCheckpoint(delta);
                 }
                 break;
             }
 
-            flushCheckpoints.remove();
+            removeHead();
+
             if (cause == null) {
                 if (tryNotify) {
                     cp.promise().trySuccess();
@@ -196,6 +268,7 @@ public final class ChannelFlushPromiseNotifier {
                     cp.promise().setFailure(cause);
                 }
             }
+            size--;
         }
 
         // Avoid overflow
@@ -210,7 +283,27 @@ public final class ChannelFlushPromiseNotifier {
         }
     }
 
+    /**
+     * Empty this {@link ChannelFlushPromiseNotifier} and reset it to its {@code initialCapacity}
+     */
+    public void reset() {
+        if (flushCheckpoints.length > initialCapacity) {
+            flushCheckpoints = new FlushCheckpoint[initialCapacity];
+        } else {
+            Arrays.fill(flushCheckpoints, null);
+        }
+    }
+
+    /**
+     * Returns {@code true} if empty.
+     */
+    public boolean isEmpty() {
+        return head == tail;
+    }
+
     interface FlushCheckpoint {
+        long pendingDataSize();
+        void pendingDataSize(long pendingDataSize);
         long flushCheckpoint();
         void flushCheckpoint(long checkpoint);
         ChannelPromise promise();
@@ -218,11 +311,23 @@ public final class ChannelFlushPromiseNotifier {
 
     private static class DefaultFlushCheckpoint implements FlushCheckpoint {
         private long checkpoint;
+        private long pendingDataSize;
         private final ChannelPromise future;
 
-        DefaultFlushCheckpoint(long checkpoint, ChannelPromise future) {
+        DefaultFlushCheckpoint(long checkpoint, long pendingDataSize, ChannelPromise future) {
             this.checkpoint = checkpoint;
             this.future = future;
+            this.pendingDataSize = pendingDataSize;
+        }
+
+        @Override
+        public long pendingDataSize() {
+            return pendingDataSize;
+        }
+
+        @Override
+        public void pendingDataSize(long pendingDataSize) {
+            this.pendingDataSize = pendingDataSize;
         }
 
         @Override
