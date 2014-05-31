@@ -20,6 +20,7 @@ import io.netty.channel.ChannelOutboundHandler;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.VoidChannelPromise;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.ReferenceCounted;
 import io.netty.util.internal.RecyclableArrayList;
@@ -108,12 +109,17 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
         } finally {
             if (out != null) {
                 final int sizeMinusOne = out.size() - 1;
-                if (sizeMinusOne >= 0) {
+                if (sizeMinusOne > 0) {
+                    boolean voidPromise = promise instanceof VoidChannelPromise;
                     for (int i = 0; i < sizeMinusOne; i ++) {
-                        ctx.write(out.get(i));
+                        if (voidPromise) {
+                            ctx.write(out.get(i), ctx.voidPromise());
+                        } else {
+                            ctx.write(out.get(i));
+                        }
                     }
-                    ctx.write(out.get(sizeMinusOne), promise);
                 }
+                ctx.write(out.get(sizeMinusOne), promise);
                 out.recycle();
             }
         }
