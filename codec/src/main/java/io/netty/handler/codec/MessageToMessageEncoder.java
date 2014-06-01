@@ -20,10 +20,8 @@ import io.netty.channel.ChannelOutboundHandler;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
-import io.netty.channel.VoidChannelPromise;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.ReferenceCounted;
-import io.netty.util.internal.RecyclableArrayList;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.TypeParameterMatcher;
 
@@ -80,10 +78,10 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
 
     @Override
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
-        RecyclableArrayList out = null;
+        CodecList out = null;
         try {
             if (acceptOutboundMessage(msg)) {
-                out = RecyclableArrayList.newInstance();
+                out = CodecList.newInstance();
                 @SuppressWarnings("unchecked")
                 I cast = (I) msg;
                 try {
@@ -108,19 +106,7 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
             throw new EncoderException(t);
         } finally {
             if (out != null) {
-                final int sizeMinusOne = out.size() - 1;
-                if (sizeMinusOne > 0) {
-                    boolean voidPromise = promise instanceof VoidChannelPromise;
-                    for (int i = 0; i < sizeMinusOne; i ++) {
-                        if (voidPromise) {
-                            ctx.write(out.get(i), ctx.voidPromise());
-                        } else {
-                            ctx.write(out.get(i));
-                        }
-                    }
-                }
-                ctx.write(out.get(sizeMinusOne), promise);
-                out.recycle();
+                out.write(ctx, promise);
             }
         }
     }

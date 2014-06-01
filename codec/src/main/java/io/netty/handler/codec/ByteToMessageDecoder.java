@@ -19,7 +19,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.internal.RecyclableArrayList;
 import io.netty.util.internal.StringUtil;
 
 import java.util.List;
@@ -125,7 +124,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof ByteBuf) {
-            RecyclableArrayList out = RecyclableArrayList.newInstance();
+            CodecList out = CodecList.newInstance();
             try {
                 ByteBuf data = (ByteBuf) msg;
                 first = cumulation == null;
@@ -156,13 +155,8 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     cumulation.release();
                     cumulation = null;
                 }
-                int size = out.size();
-                decodeWasNull = size == 0;
-
-                for (int i = 0; i < size; i ++) {
-                    ctx.fireChannelRead(out.get(i));
-                }
-                out.recycle();
+                decodeWasNull = out.isEmpty();
+                out.fireChannelRead(ctx);
             }
         } else {
             ctx.fireChannelRead(msg);
@@ -199,7 +193,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        RecyclableArrayList out = RecyclableArrayList.newInstance();
+        CodecList out = CodecList.newInstance();
         try {
             if (cumulation != null) {
                 callDecode(ctx, cumulation, out);
@@ -216,12 +210,8 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 cumulation.release();
                 cumulation = null;
             }
-            int size = out.size();
-            for (int i = 0; i < size; i ++) {
-                ctx.fireChannelRead(out.get(i));
-            }
+            out.fireChannelRead(ctx);
             ctx.fireChannelInactive();
-            out.recycle();
         }
     }
 
