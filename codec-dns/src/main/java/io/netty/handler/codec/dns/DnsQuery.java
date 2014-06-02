@@ -42,4 +42,34 @@ public class DnsQuery extends DnsMessage<DnsQueryHeader> {
     public InetSocketAddress recipient() {
         return recipient;
     }
+
+    @Override
+    public DnsQuery addAnswer(DnsResource answer) {
+        super.addAnswer(answer);
+        return this;
+    }
+
+    @Override
+    public DnsQuery addQuestion(DnsQuestion question) {
+        super.addQuestion(question);
+        return this;
+    }
+
+    @Override
+    public DnsQuery addAuthorityResource(DnsResource resource) {
+        super.addAuthorityResource(resource);
+        return this;
+    }
+
+    @Override
+    public DnsQuery addAdditionalResource(DnsResource resource) {
+        super.addAdditionalResource(resource);
+        return this;
+    }
+
+    @Override
+    public DnsQuery setHeader(DnsQueryHeader header) {
+        super.setHeader(header);
+        return this;
+    }
 }

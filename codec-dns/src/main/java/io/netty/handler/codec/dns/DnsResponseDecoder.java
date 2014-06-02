@@ -42,7 +42,7 @@ public class DnsResponseDecoder extends MessageToMessageDecoder<DatagramPacket> 
      *            the byte buffer containing the DNS packet
      * @return the domain name for an entry
      */
-    public static String readName(ByteBuf buf) {
+    static String readName(ByteBuf buf) {
         int position = -1;
         StringBuilder name = new StringBuilder();
         for (int len = buf.readUnsignedByte(); buf.isReadable() && len != 0; len = buf.readUnsignedByte()) {

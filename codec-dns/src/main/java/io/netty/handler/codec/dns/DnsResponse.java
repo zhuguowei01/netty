@@ -38,4 +38,34 @@ public final class DnsResponse extends DnsMessage<DnsResponseHeader> {
     public InetSocketAddress sender() {
         return sender;
     }
+
+    @Override
+    public DnsResponse addAnswer(DnsResource answer) {
+        super.addAnswer(answer);
+        return this;
+    }
+
+    @Override
+    public DnsResponse addQuestion(DnsQuestion question) {
+        super.addQuestion(question);
+        return this;
+    }
+
+    @Override
+    public DnsResponse addAuthorityResource(DnsResource resource) {
+        super.addAuthorityResource(resource);
+        return this;
+    }
+
+    @Override
+    public DnsResponse addAdditionalResource(DnsResource resource) {
+        super.addAdditionalResource(resource);
+        return this;
+    }
+
+    @Override
+    public DnsResponse setHeader(DnsResponseHeader header) {
+        super.setHeader(header);
+        return this;
+    }
 }
