@@ -87,16 +87,22 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     @Override
     protected void addMessage0(Object msg, int estimatedSize, ChannelPromise promise) {
         promiseNotifier.add(promise, estimatedSize);
+        long total = total(msg);
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
-            /*if (lastEntry != null && !lastEntry.flushed && lastEntry.msg instanceof ByteBuf) {
+            if (lastEntry != null && !lastEntry.flushed && lastEntry.msg instanceof ByteBuf) {
                 ByteBuf lastBuf = (ByteBuf) lastEntry.msg;
-                if (lastBuf.isWritable(buf.readableBytes())) {
+                if (lastBuf.nioBufferCount() == 1 && lastBuf.isWritable(estimatedSize)) {
                     lastBuf.writeBytes(buf);
+                    lastEntry.buffers = null;
+                    lastEntry.buf = null;
+                    lastEntry.count = -1;
+                    lastEntry.pendingSize += estimatedSize;
+                    lastEntry.total += total;
                     safeRelease(buf);
                     return;
                 }
-            }*/
+            }
             if (!buf.isDirect()) {
                 msg = copyToDirectByteBuf(buf);
             }
@@ -192,6 +198,9 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     @Override
     protected int remove0() {
         Entry e = buffer[flushed];
+        if (e == lastEntry) {
+            lastEntry = null;
+        }
         Object msg = e.msg;
         int size = e.pendingSize;
 
@@ -212,6 +221,9 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
     @Override
     protected int remove0(Throwable cause) {
         Entry e = buffer[flushed];
+        if (e == lastEntry) {
+            lastEntry = null;
+        }
         Object msg = e.msg;
         int size = e.pendingSize;
 
@@ -257,7 +269,6 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
                 e.pendingSize = 0;
                 if (!e.cancelled) {
                     safeRelease(e.msg);
-                    //safeFail(promises[index].promise(), cause);
                 }
                 e.msg = null;
             }
@@ -284,6 +295,7 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
         unflushed = 0;
         tail = 0;
 
+        lastEntry = null;
         promiseNotifier.reset();
 
         // take care of recycle the ByteBuffer[] structure.
