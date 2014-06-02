@@ -178,10 +178,13 @@ public final class NioSocketChannelOutboundBuffer extends ChannelOutboundBuffer 
 
     @Override
     public void progress(long amount) {
-        Entry e = buffer[flushed];
-        e.progress += amount;
-        e.pendingSize -= amount;
-        increaseAndNotify(amount, null);
+        if (amount > 0) {
+            Entry e = buffer[flushed];
+            e.progress += amount;
+            e.pendingSize -= amount;
+            increaseAndNotify(amount, null);
+            decrementPendingOutboundBytes(amount);
+        }
     }
 
     private void increaseAndNotify(long amount, Throwable cause) {

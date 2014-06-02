@@ -93,7 +93,7 @@ public abstract class ChannelOutboundBuffer {
      * Increment the pending bytes which will be written at some point.
      * This method is thread-safe!
      */
-    final void incrementPendingOutboundBytes(int size) {
+    final void incrementPendingOutboundBytes(long size) {
         // Cache the channel and check for null to make sure we not produce a NPE in case of the Channel gets
         // recycled while process this method.
         Channel channel = this.channel;
@@ -101,11 +101,7 @@ public abstract class ChannelOutboundBuffer {
             return;
         }
 
-        long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, size);
-
-        int highWaterMark = channel.config().getWriteBufferHighWaterMark();
-
-        if (newWriteBufferSize > highWaterMark) {
+        if (TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, size) > channel.config().getWriteBufferHighWaterMark()) {
             if (WRITABLE_UPDATER.get(this) == 1 && WRITABLE_UPDATER.compareAndSet(this, 1, 0)) {
                 channel.pipeline().fireChannelWritabilityChanged();
             }
@@ -116,7 +112,7 @@ public abstract class ChannelOutboundBuffer {
      * Decrement the pending bytes which will be written at some point.
      * This method is thread-safe!
      */
-    protected final void decrementPendingOutboundBytes(int size) {
+    protected final void decrementPendingOutboundBytes(long size) {
         // Cache the channel and check for null to make sure we not produce a NPE in case of the Channel gets
         // recycled while process this method.
         Channel channel = this.channel;
@@ -125,10 +121,7 @@ public abstract class ChannelOutboundBuffer {
         }
 
         long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, -size);
-
-        int lowWaterMark = channel.config().getWriteBufferLowWaterMark();
-
-        if (newWriteBufferSize == 0 || newWriteBufferSize < lowWaterMark) {
+        if (newWriteBufferSize == 0 || newWriteBufferSize < channel.config().getWriteBufferLowWaterMark()) {
             if (WRITABLE_UPDATER.get(this) == 0 && WRITABLE_UPDATER.compareAndSet(this, 0, 1)) {
                 channel.pipeline().fireChannelWritabilityChanged();
             }
@@ -257,13 +250,7 @@ public abstract class ChannelOutboundBuffer {
 
         // Release all unflushed messages.
         try {
-            int size = failUnflushed(cause);
-            long oldValue = totalPendingSize;
-            long newWriteBufferSize = oldValue - size;
-            while (!TOTAL_PENDING_SIZE_UPDATER.compareAndSet(this, oldValue, newWriteBufferSize)) {
-                oldValue = totalPendingSize;
-                newWriteBufferSize = oldValue - size;
-            }
+            failUnflushed(cause);
         } finally {
             inFail = false;
         }
