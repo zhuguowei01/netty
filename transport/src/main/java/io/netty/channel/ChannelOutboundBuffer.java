@@ -101,17 +101,12 @@ public abstract class ChannelOutboundBuffer {
             return;
         }
 
-        long oldValue = totalPendingSize;
-        long newWriteBufferSize = oldValue + size;
-        while (!TOTAL_PENDING_SIZE_UPDATER.compareAndSet(this, oldValue, newWriteBufferSize)) {
-            oldValue = totalPendingSize;
-            newWriteBufferSize = oldValue + size;
-        }
+        long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, size);
 
         int highWaterMark = channel.config().getWriteBufferHighWaterMark();
 
         if (newWriteBufferSize > highWaterMark) {
-            if (WRITABLE_UPDATER.compareAndSet(this, 1, 0)) {
+            if (WRITABLE_UPDATER.get(this) == 1 && WRITABLE_UPDATER.compareAndSet(this, 1, 0)) {
                 channel.pipeline().fireChannelWritabilityChanged();
             }
         }
@@ -129,17 +124,12 @@ public abstract class ChannelOutboundBuffer {
             return;
         }
 
-        long oldValue = totalPendingSize;
-        long newWriteBufferSize = oldValue - size;
-        while (!TOTAL_PENDING_SIZE_UPDATER.compareAndSet(this, oldValue, newWriteBufferSize)) {
-            oldValue = totalPendingSize;
-            newWriteBufferSize = oldValue - size;
-        }
+        long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, -size);
 
         int lowWaterMark = channel.config().getWriteBufferLowWaterMark();
 
         if (newWriteBufferSize == 0 || newWriteBufferSize < lowWaterMark) {
-            if (WRITABLE_UPDATER.compareAndSet(this, 0, 1)) {
+            if (WRITABLE_UPDATER.get(this) == 0 && WRITABLE_UPDATER.compareAndSet(this, 0, 1)) {
                 channel.pipeline().fireChannelWritabilityChanged();
             }
         }
