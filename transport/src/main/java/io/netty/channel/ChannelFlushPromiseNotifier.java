@@ -15,8 +15,6 @@
  */
 package io.netty.channel;
 
-import java.util.Arrays;
-
 /**
  * This implementation allows to register {@link ChannelFuture} instances which will get notified once some amount of
  * data was written and so a checkpoint was reached.
@@ -231,14 +229,8 @@ public final class ChannelFlushPromiseNotifier {
         }
 
         final long writeCounter = this.writeCounter;
-        for (;;) {
+        for (; size > 0; size--) {
             FlushCheckpoint cp = flushCheckpoints[head];
-            if (cp == null) {
-                // Reset the counter if there's nothing in the notification list.
-                this.writeCounter = 0;
-                break;
-            }
-
             if (cp.flushCheckpoint() > writeCounter) {
                 long delta = cp.flushCheckpoint() - writeCounter;
                 ChannelPromise p = cp.promise();
@@ -268,17 +260,20 @@ public final class ChannelFlushPromiseNotifier {
                     cp.promise().setFailure(cause);
                 }
             }
-            size--;
         }
-
-        // Avoid overflow
-        final long newWriteCounter = this.writeCounter;
-        if (newWriteCounter >= 0x8000000000L) {
-            // Reset the counter only when the counter grew pretty large
-            // so that we can reduce the cost of updating all entries in the notification list.
+        if (size == 0) {
+            // Reset the counter if there's nothing in the notification list.
             this.writeCounter = 0;
-            for (FlushCheckpoint cp: flushCheckpoints) {
-                cp.flushCheckpoint(cp.flushCheckpoint() - newWriteCounter);
+        } else {
+            // Avoid overflow
+            final long newWriteCounter = this.writeCounter;
+            if (newWriteCounter >= 0x8000000000L) {
+                // Reset the counter only when the counter grew pretty large
+                // so that we can reduce the cost of updating all entries in the notification list.
+                this.writeCounter = 0;
+                for (FlushCheckpoint cp: flushCheckpoints) {
+                    cp.flushCheckpoint(cp.flushCheckpoint() - newWriteCounter);
+                }
             }
         }
     }
@@ -290,8 +285,12 @@ public final class ChannelFlushPromiseNotifier {
         if (flushCheckpoints.length > initialCapacity) {
             flushCheckpoints = new FlushCheckpoint[initialCapacity];
         } else {
-            Arrays.fill(flushCheckpoints, null);
+            for (int i = head; i != tail; i = nextIdx(i)) {
+                flushCheckpoints[i] = null;
+            }
         }
+        tail = 0;
+        head = 0;
     }
 
     /**
