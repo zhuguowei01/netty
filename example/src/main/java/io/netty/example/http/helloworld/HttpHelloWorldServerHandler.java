@@ -23,7 +23,6 @@ import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpRequest;
 
-import static io.netty.handler.codec.http.HttpHeaders.Names.*;
 import static io.netty.handler.codec.http.HttpHeaders.*;
 import static io.netty.handler.codec.http.HttpResponseStatus.*;
 import static io.netty.handler.codec.http.HttpVersion.*;
@@ -46,13 +45,16 @@ public class HttpHelloWorldServerHandler extends ChannelHandlerAdapter {
             }
             boolean keepAlive = isKeepAlive(req);
             FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.wrappedBuffer(CONTENT));
-            response.headers().set(CONTENT_TYPE, "text/plain");
-            response.headers().set(CONTENT_LENGTH, response.content().readableBytes());
+//            response.headers().set(CONTENT_TYPE, "text/plain");
+//            response.headers().set(CONTENT_LENGTH, response.content().readableBytes());
+            response.headers().set("Content-Type", "text/plain");
+            response.headers().set("Content-Length", response.content().readableBytes());
 
             if (!keepAlive) {
                 ctx.write(response).addListener(ChannelFutureListener.CLOSE);
             } else {
-                response.headers().set(CONNECTION, Values.KEEP_ALIVE);
+                response.headers().set("CONNECTION", Values.KEEP_ALIVE);
+//                response.headers().set(CONNECTION, Values.KEEP_ALIVE);
                 ctx.write(response);
             }
         }

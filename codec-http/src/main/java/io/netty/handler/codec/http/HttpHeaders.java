@@ -21,6 +21,7 @@ import java.text.ParseException;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -1235,8 +1236,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     }
 
     static void encode(CharSequence key, CharSequence value, ByteBuf buf) {
-        encodeAscii(key, buf);
-        buf.writeBytes(HEADER_SEPERATOR);
+        encodeAsciiCached(key, buf);
         encodeAscii(value, buf);
         buf.writeBytes(CRLF);
     }
@@ -1246,6 +1246,35 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
             ((HttpHeaderEntity) seq).encode(buf);
         } else {
             encodeAscii0(seq, buf);
+        }
+    }
+
+    private static final ThreadLocal<Map<CharSequence, byte[]>> asciiCache =
+            new ThreadLocal<Map<CharSequence, byte[]>>() {
+        @Override
+        protected Map<CharSequence, byte[]> initialValue() {
+            return new IdentityHashMap<CharSequence, byte[]>();
+        }
+    };
+
+    public static void encodeAsciiCached(CharSequence seq, ByteBuf buf) {
+        if (seq instanceof HttpHeaderEntity) {
+            ((HttpHeaderEntity) seq).encode(buf);
+            buf.writeBytes(HEADER_SEPERATOR);
+        } else {
+            byte[] encoded = asciiCache.get().get(seq);
+            if (encoded == null) {
+                int length = seq.length();
+                encoded = new byte[length + 2];
+                int i;
+                for (i = 0; i < length; i ++) {
+                    encoded[i] = (byte) seq.charAt(i);
+                }
+                encoded[i ++] = ':';
+                encoded[i] = ' ';
+                asciiCache.get().put(seq, encoded);
+            }
+            buf.writeBytes(encoded);
         }
     }
 
