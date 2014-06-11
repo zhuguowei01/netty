@@ -20,7 +20,7 @@ package io.netty.handler.codec.dns.resolver;
  * responsible for accepting e-mail and a preference value for prioritizing mail
  * servers if multiple servers exist.
  */
-public final class MailExchangerRecord {
+public final class MailExchangerRecord implements Comparable<MailExchangerRecord> {
 
     private final int priority;
     private final String name;
@@ -59,4 +59,8 @@ public final class MailExchangerRecord {
         return priority + " " + name;
     }
 
+    @Override
+    public int compareTo(MailExchangerRecord o) {
+        return priority() - o.priority();
+    }
 }

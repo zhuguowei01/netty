@@ -74,7 +74,6 @@ public class DnsResponseDecoder extends MessageToMessageDecoder<DatagramPacket> 
         out.add(response);
     }
 
-
     /**
      * Decodes a question, given a DNS packet in a byte buffer.
      *

@@ -16,32 +16,34 @@
 package io.netty.handler.codec.dns.resolver;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.dns.DnsResource;
 import io.netty.handler.codec.dns.DnsUtil;
+import io.netty.util.internal.StringUtil;
 
 /**
- * Decodes SOA (start of authority) resource records.
+ * Decodes SRV (service) resource records.
  */
-public final class StartOfAuthorityDecoder implements DnsResourceDecoder<StartOfAuthorityRecord> {
+public final class ServiceRecordDecoder implements DnsResourceDecoder<ServiceRecord> {
 
     /**
-     * Returns a decoded SOA (start of authority) resource record, stored as an
-     * instance of {@link StartOfAuthorityRecord}.
+     * Returns a decoded SRV (service) resource record, stored as an instance of
+     * {@link ServiceRecord}.
      *
      * @param resource
      *            the resource record being decoded
      */
     @Override
-    public StartOfAuthorityRecord decode(DnsResource resource) {
+    public ServiceRecord decode(DnsResource resource) {
         ByteBuf data = resource.content();
-        String mName = DnsUtil.readName(data);
-        String rName = DnsUtil.readName(data);
-        long serial = data.readUnsignedInt();
-        int refresh = data.readInt();
-        int retry = data.readInt();
-        int expire = data.readInt();
-        long minimum = data.readUnsignedInt();
-        return new StartOfAuthorityRecord(mName, rName, serial, refresh, retry, expire, minimum);
+        int priority = data.readShort();
+        int weight = data.readShort();
+        int port = data.readUnsignedShort();
+        String target = DnsUtil.readName(data);
+        String[] parts = StringUtil.split(resource.name(), '.', 3);
+        if (parts.length != 3) {
+            throw new DecoderException("Invalid DnsResource name for a ServiceRecord: " + resource.name());
+        }
+        return new ServiceRecord(parts[0], parts[1], parts[2], priority, weight, port, target);
     }
-
 }

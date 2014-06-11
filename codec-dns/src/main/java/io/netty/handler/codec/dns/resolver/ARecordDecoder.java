@@ -15,26 +15,10 @@
  */
 package io.netty.handler.codec.dns.resolver;
 
-import io.netty.handler.codec.dns.DnsResource;
+public final class ARecordDecoder extends AbstractAddressDecoder {
 
-import java.net.InetAddress;
-
-/**
- * Used for decoding resource records.
- *
- * @param <T>
- *            the type of data to return after decoding a resource record (for
- *            example, an {@link AbstractAddressDecoder} will return a {@link InetAddress})
- */
-public interface DnsResourceDecoder<T> {
-
-    /**
-     * Returns a generic type {@code T} defined in a class implementing
-     * {@link DnsResourceDecoder} after decoding a resource record when given a DNS
-     * response packet.
-     *
-     * @param resource
-     *            the resource record being decoded
-     */
-    T decode(DnsResource resource);
+    @Override
+    protected int octets() {
+        return 4;
+    }
 }

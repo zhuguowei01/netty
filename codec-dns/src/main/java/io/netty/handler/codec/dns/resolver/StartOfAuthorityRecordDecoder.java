@@ -20,22 +20,27 @@ import io.netty.handler.codec.dns.DnsResource;
 import io.netty.handler.codec.dns.DnsUtil;
 
 /**
- * Decodes MX (mail exchanger) resource records.
+ * Decodes SOA (start of authority) resource records.
  */
-public class MailExchangerDecoder implements DnsResourceDecoder<MailExchangerRecord> {
+public final class StartOfAuthorityRecordDecoder implements DnsResourceDecoder<StartOfAuthorityRecord> {
 
     /**
-     * Returns a decoded MX (mail exchanger) resource record, stored as an
-     * instance of {@link MailExchangerRecord}.
+     * Returns a decoded SOA (start of authority) resource record, stored as an
+     * instance of {@link StartOfAuthorityRecord}.
      *
      * @param resource
-     *            the {@link DnsResource} being decoded
+     *            the resource record being decoded
      */
     @Override
-    public MailExchangerRecord decode(DnsResource resource) {
+    public StartOfAuthorityRecord decode(DnsResource resource) {
         ByteBuf data = resource.content();
-        int priority = data.readShort();
-        String name = DnsUtil.readName(data);
-        return new MailExchangerRecord(priority, name);
+        String mName = DnsUtil.readName(data);
+        String rName = DnsUtil.readName(data);
+        long serial = data.readUnsignedInt();
+        int refresh = data.readInt();
+        int retry = data.readInt();
+        int expire = data.readInt();
+        long minimum = data.readUnsignedInt();
+        return new StartOfAuthorityRecord(mName, rName, serial, refresh, retry, expire, minimum);
     }
 }

@@ -40,6 +40,7 @@ import io.netty.handler.codec.dns.DnsResponseDecoder;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
@@ -52,7 +53,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Pattern;
 
 /**
  * This is the main class for looking up information from DNS servers. Users should call the methods in this class to
@@ -60,17 +60,23 @@ import java.util.regex.Pattern;
  */
 public final class AsynchronousDnsResolver {
 
-    private static final Pattern REVERSE_PATTERN = Pattern.compile("\\.");
+    private static final DnsResourceDecoder<Object> DEFAULT_DECODER = new DefaultDnsResourceDecoder();
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AsynchronousDnsResolver.class);
     private static final DnsResponseDecoder RESPONSE_DECODER = new DnsResponseDecoder();
     private static final DnsQueryEncoder QUERY_ENCODER = new DnsQueryEncoder();
-    private static final DnsResponseHandler RESPONSE_HANDLER = new DnsResponseHandler();
     private static final AtomicInteger ID = new AtomicInteger(0);
     private static final String IN_ADDR_ARPA = "in-addr.arpa";
 
+    private final DnsResponseHandler responseHandler = new DnsResponseHandler();
     private final AtomicInteger dnsServerIndex = new AtomicInteger();
     private final InetSocketAddress[] dnsServers;
     private final Channel channel;
+    private final DnsResourceDecoder<?> decoder;
+
+    public AsynchronousDnsResolver(ChannelFactory<DatagramChannel> channelFactory, EventLoopGroup eventLoupGroup,
+            InetSocketAddress... dnsServers) {
+        this(createChannel(channelFactory, eventLoupGroup), DEFAULT_DECODER , dnsServers);
+    }
 
     /**
      * Constructs a new {@link AsynchronousDnsResolver}.
@@ -80,17 +86,36 @@ public final class AsynchronousDnsResolver {
      * @param eventLoupGroup
      *            an {@link EventLoopGroup} to use for all DNS server {@link Channel} s.
      */
-    public AsynchronousDnsResolver(ChannelFactory<DatagramChannel> channelFactory,
-                                   EventLoopGroup eventLoupGroup, InetSocketAddress... dnsServers) {
-        this(createChannel(channelFactory, eventLoupGroup), dnsServers);
+    public AsynchronousDnsResolver(ChannelFactory<DatagramChannel> channelFactory, EventLoopGroup eventLoupGroup,
+                                   DnsResourceDecoder<?> decoder, InetSocketAddress... dnsServers) {
+        this(createChannel(channelFactory, eventLoupGroup), decoder, dnsServers);
     }
 
-    public AsynchronousDnsResolver(DatagramChannel channel, InetSocketAddress... dnsServers) {
-        if (dnsServers == null || dnsServers.length == 0) {
-            this.dnsServers = useSystemDefault();
-        } else {
-            this.dnsServers = dnsServers.clone();
+    public AsynchronousDnsResolver(DatagramChannel channel, DnsResourceDecoder<?> decoder,
+                                   InetSocketAddress... dnsServers) {
+        if (decoder == null) {
+            throw new NullPointerException("decoder");
         }
+        channel.pipeline().addLast("decoder", RESPONSE_DECODER).addLast("encoder", QUERY_ENCODER)
+                .addLast("handler", responseHandler);
+
+        if (dnsServers == null || dnsServers.length == 0) {
+            this.dnsServers = systemDefaultDnsServers();
+        } else {
+            List<InetSocketAddress> servers = new ArrayList<InetSocketAddress>(dnsServers.length);
+            for (InetSocketAddress addr: dnsServers) {
+                if (addr == null) {
+                    break;
+                }
+                servers.add(addr);
+            }
+            if (servers.isEmpty()) {
+                this.dnsServers = systemDefaultDnsServers();
+            } else {
+                this.dnsServers = servers.toArray(new InetSocketAddress[servers.size()]);
+            }
+        }
+        this.decoder = decoder;
         this.channel = channel;
     }
 
@@ -106,8 +131,6 @@ public final class AsynchronousDnsResolver {
         ChannelConfig config = channel.config();
         config.setOption(ChannelOption.DATAGRAM_CHANNEL_ACTIVE_ON_REGISTRATION, true);
         config.setOption(ChannelOption.SO_BROADCAST, true);
-        channel.pipeline().addLast("decoder", RESPONSE_DECODER).addLast("encoder", QUERY_ENCODER)
-                .addLast("handler", RESPONSE_HANDLER);
         ChannelFuture future = eventLoupGroup.next().register(channel);
         return (DatagramChannel) future.syncUninterruptibly().channel();
     }
@@ -130,7 +153,7 @@ public final class AsynchronousDnsResolver {
      * Loads system's default DNS server settings and validates servers before adding them to the list of servers to use
      * for this {@link AsynchronousDnsResolver }.
      */
-    private static InetSocketAddress[] useSystemDefault() {
+    private static InetSocketAddress[] systemDefaultDnsServers() {
         try {
             Class<?> configClass = Class.forName("sun.net.dns.ResolverConfiguration");
             Method open = configClass.getMethod("open");
@@ -144,8 +167,8 @@ public final class AsynchronousDnsResolver {
             }
             return addresses;
         } catch (Exception e) {
-            logger.error("Failed to obtain system's DNS server addresses.", e);
-            throw new IllegalStateException("Failed to obtains system's DNS server addresses", e);
+            logger.error("failed to obtain system's DNS server addresses.", e);
+            throw new IllegalStateException("failed to obtain system's DNS server addresses", e);
         }
     }
 
@@ -300,7 +323,7 @@ public final class AsynchronousDnsResolver {
      *            the IP address to perform a reverse lookup on
      */
     public Future<String> reverse(String ipAddress) {
-        String[] octets = REVERSE_PATTERN.split(ipAddress);
+        String[] octets = StringUtil.split(ipAddress, '.');
         StringBuilder domain = new StringBuilder(ipAddress.length() + IN_ADDR_ARPA.length() + 4);
         for (int i = octets.length - 1; i > -1; i--) {
             domain.append(octets[i]).append('.');
@@ -309,7 +332,7 @@ public final class AsynchronousDnsResolver {
     }
 
     @ChannelHandler.Sharable
-    private static final class DnsResponseHandler extends SimpleChannelInboundHandler<DnsResponse> {
+    private final class DnsResponseHandler extends SimpleChannelInboundHandler<DnsResponse> {
         private final Map<Integer, ResolverDnsQuery<?>> queries = PlatformDependent.newConcurrentHashMap();
 
         /**
@@ -332,13 +355,13 @@ public final class AsynchronousDnsResolver {
         }
 
         @SuppressWarnings({ "rawtypes", "unchecked" })
-        private static boolean processResource(ResolverDnsQuery query, List<DnsResource> resources) {
+        private boolean processResource(ResolverDnsQuery query, List<DnsResource> resources) {
             boolean single = query.single;
 
             List<Object> decoded = null;
             for (int i = 0; i < resources.size(); i++) {
                 DnsResource resource = resources.get(i);
-                Object result = DnsResourceDecoderFactory.getFactory().decode(resource);
+                Object result = decoder.decode(resource);
                 if (result != null) {
                     if (single) {
                         query.setSuccess(result);

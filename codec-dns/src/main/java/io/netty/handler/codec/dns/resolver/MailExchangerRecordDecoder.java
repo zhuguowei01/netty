@@ -20,24 +20,22 @@ import io.netty.handler.codec.dns.DnsResource;
 import io.netty.handler.codec.dns.DnsUtil;
 
 /**
- * Decodes SRV (service) resource records.
+ * Decodes MX (mail exchanger) resource records.
  */
-public final class ServiceDecoder implements DnsResourceDecoder<ServiceRecord> {
+public class MailExchangerRecordDecoder implements DnsResourceDecoder<MailExchangerRecord> {
 
     /**
-     * Returns a decoded SRV (service) resource record, stored as an instance of
-     * {@link ServiceRecord}.
+     * Returns a decoded MX (mail exchanger) resource record, stored as an
+     * instance of {@link MailExchangerRecord}.
      *
      * @param resource
-     *            the resource record being decoded
+     *            the {@link DnsResource} being decoded
      */
     @Override
-    public ServiceRecord decode(DnsResource resource) {
+    public MailExchangerRecord decode(DnsResource resource) {
         ByteBuf data = resource.content();
         int priority = data.readShort();
-        int weight = data.readShort();
-        int port = data.readUnsignedShort();
-        String target = DnsUtil.readName(data);
-        return new ServiceRecord(resource.name(), priority, weight, port, target);
+        String name = DnsUtil.readName(data);
+        return new MailExchangerRecord(priority, name);
     }
 }

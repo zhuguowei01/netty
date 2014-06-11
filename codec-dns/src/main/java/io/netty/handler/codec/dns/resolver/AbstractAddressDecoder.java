@@ -23,35 +23,11 @@ import io.netty.util.CharsetUtil;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 
-/**
- * Decodes A and AAAA resource records into IPv4 and IPv6 addresses,
- * respectively.
- */
-public final class AddressDecoder implements DnsResourceDecoder<InetAddress> {
+abstract class AbstractAddressDecoder implements DnsResourceDecoder<InetAddress> {
 
-    private final int octets;
-
-    /**
-     * Constructs an {@code AddressDecoder}, which decodes A and AAAA resource
-     * records.
-     *
-     * @param octets
-     *            the number of octets an address has. 4 for type A records and
-     *            16 for type AAAA records
-     */
-    public AddressDecoder(int octets) {
-        this.octets = octets;
-    }
-
-    /**
-     * Returns an {@link InetAddress} containing a decoded address from either an A
-     * or AAAA resource record.
-     *
-     * @param resource
-     *            the {@link DnsResource} being decoded
-     */
     @Override
-    public InetAddress decode(DnsResource resource) {
+    public final InetAddress decode(DnsResource resource) {
+        int octets = octets();
         ByteBuf data = resource.content();
         int size = data.readableBytes();
         if (size != octets) {
@@ -67,4 +43,6 @@ public final class AddressDecoder implements DnsResourceDecoder<InetAddress> {
                     + data.toString(data.readerIndex(), size, CharsetUtil.UTF_8) + " to InetAddress.");
         }
     }
+
+    protected abstract int octets();
 }

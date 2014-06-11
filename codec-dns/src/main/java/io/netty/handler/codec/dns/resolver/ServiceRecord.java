@@ -15,14 +15,12 @@
  */
 package io.netty.handler.codec.dns.resolver;
 
-import io.netty.util.internal.StringUtil;
-
 /**
  * Represents an SRV (service) record, which contains the location, or hostname
  * and port, of servers for specified services. For example, a service "http"
  * may be running on the server "example.com" on port 80.
  */
-public final class ServiceRecord {
+public final class ServiceRecord implements Comparable<ServiceRecord> {
 
     private final int priority;
     private final int weight;
@@ -35,11 +33,12 @@ public final class ServiceRecord {
     /**
      * Constructs an SRV (service) record.
      *
-     * @param fullPath
-     *            the name first read in the SRV record which contains the
-     *            service, the protocol, and the name of the server being
-     *            queried. The format is {@code _service._protocol.hostname}, or
-     *            for example {@code _http._tcp.example.com}
+     * @param service
+     *            the service
+     * @param protocol
+     *            the protcol
+     * @param name
+     *            the name
      * @param priority
      *            relative priority of this service, range 0-65535 (lower is
      *            higher priority)
@@ -52,11 +51,11 @@ public final class ServiceRecord {
      * @param target
      *            the name of the host for the service
      */
-    public ServiceRecord(String fullPath, int priority, int weight, int port, String target) {
-        String[] parts = StringUtil.split(fullPath, '.' ,3);
-        service = parts[0];
-        protocol = parts[1];
-        name = parts[2];
+    public ServiceRecord(String service, String protocol, String name,
+                         int priority, int weight, int port, String target) {
+        this.service = service;
+        this.protocol = protocol;
+        this.name = name;
         this.priority = priority;
         this.weight = weight;
         this.port = port;
@@ -112,4 +111,20 @@ public final class ServiceRecord {
         return target;
     }
 
+    /**
+     * Returns the name first read in the SRV record which contains the
+     * {@code service}, the {@code protocol}, and the {@code name} of the server being
+     * queried.
+     *
+     * The format is {@code _service._protocol.hostname}, or
+     *            for example {@code _http._tcp.example.com}
+     */
+    public String fullPath() {
+        return service + '.' + protocol + '.' + name;
+    }
+
+    @Override
+    public int compareTo(ServiceRecord o) {
+        return priority() - o.priority();
+    }
 }
