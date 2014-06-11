@@ -75,9 +75,18 @@ public final class StringUtil {
      * version of {@link String#split(String)}.
      */
     public static String[] split(String value, char delim) {
+        return split(value, delim, 0);
+    }
+
+    /**
+     * Splits the specified {@link String} with the specified delimiter.  This operation is a simplified and optimized
+     * version of {@link String#split(String, int)}.
+     */
+    public static String[] split(String value, char delim, int limit) {
         final int end = value.length();
         final List<String> res = new ArrayList<String>();
 
+        int matches = 0;
         int start = 0;
         for (int i = 0; i < end; i ++) {
             if (value.charAt(i) == delim) {
@@ -87,6 +96,10 @@ public final class StringUtil {
                     res.add(value.substring(start, i));
                 }
                 start = i + 1;
+                matches++;
+                if (matches == limit) {
+                    break;
+                }
             }
         }
 
