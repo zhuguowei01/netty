@@ -24,6 +24,7 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.DnsResolver;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.socket.DatagramChannel;
@@ -58,7 +59,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * This is the main class for looking up information from DNS servers. Users should call the methods in this class to
  * query and receive answers from DNS servers. The class attempts to load user's default DNS servers.
  */
-public final class AsynchronousDnsResolver {
+public final class AsynchronousDnsResolver implements DnsResolver {
 
     private static final DnsResourceDecoder<Object> DEFAULT_DECODER = new DefaultDnsResourceDecoder();
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AsynchronousDnsResolver.class);
@@ -197,10 +198,7 @@ public final class AsynchronousDnsResolver {
         return promise;
     }
 
-    /**
-     * Returns a {@link Future} which can be used to obtain either an IPv4 or IPv6 {@link InetAddress} for the specified
-     * name.
-     */
+    @Override
     public Future<InetAddress> lookup(String domain) {
         return lookup(domain, null);
     }
