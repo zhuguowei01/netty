@@ -17,8 +17,10 @@ package io.netty.util;
 
 import org.junit.Test;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -122,5 +124,30 @@ public class HashedWheelTimerTest {
         }, 1, TimeUnit.SECONDS);
         Thread.sleep(3500);
         assertEquals(3, counter.get());
+        timer.stop();
+    }
+
+    @Test
+    public void testExecutionOnTime() throws InterruptedException {
+        final HashedWheelTimer timer = new HashedWheelTimer(200, TimeUnit.MILLISECONDS);
+        final BlockingQueue<Long> queue = new LinkedBlockingQueue<Long>();
+
+        int scheduledTasks = 1000000;
+        for (int i = 0; i < scheduledTasks; i++) {
+            final long start = System.nanoTime();
+            timer.newTimeout(new TimerTask() {
+                @Override
+                public void run(final Timeout timeout) throws Exception {
+                    queue.add(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+                }
+            }, 125, TimeUnit.MILLISECONDS);
+        }
+
+        for (int i = 0; i < scheduledTasks; i++) {
+            long delay = queue.take();
+            assertTrue("delay " + delay + " must be 200 <= 300", delay >= 200 && delay <= 300);
+        }
+
+        timer.stop();
     }
 }
