@@ -211,6 +211,7 @@ public class SslHandler extends FrameDecoder
 
     final Object handshakeLock = new Object();
     private boolean handshaking;
+    private boolean handshakeClose;
     private volatile boolean handshaken;
     private volatile ChannelFuture handshakeFuture;
 
@@ -1222,10 +1223,15 @@ public class SslHandler extends FrameDecoder
                 }
 
                 synchronized (handshakeLock) {
+                    if (handshakeClose) {
+                        break;
+                    }
                     result = engine.unwrap(inNetBuf, outAppBuf);
 
                     switch (result.getStatus()) {
                         case CLOSED:
+                            handshakeClose = true;
+
                             // notify about the CLOSED state of the SSLEngine. See #137
                             sslEngineCloseFuture.setClosed();
                             break;
