@@ -514,6 +514,7 @@ public class HashedWheelTimer implements Timer {
             if (!compareAndSetState(ST_INIT, ST_CANCELLED)) {
                 return false;
             }
+            HashedWheelBucket bucket = this.bucket;
             if (bucket != null) {
                 // if tryLock fails it means that HashedWheelBucket is currently processed and so there is nothing for
                 // us to do as the remove itself will be done while processing.
