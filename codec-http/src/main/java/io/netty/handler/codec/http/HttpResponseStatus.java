@@ -15,7 +15,7 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteWriter;
 import io.netty.util.CharsetUtil;
 
 import static io.netty.handler.codec.http.HttpConstants.SP;
@@ -548,13 +548,13 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
         return buf.toString();
     }
 
-    void encode(ByteBuf buf) {
+    void encode(ByteWriter writer) {
         if (bytes == null) {
-            HttpHeaders.encodeAscii0(String.valueOf(code()), buf);
-            buf.writeByte(SP);
-            HttpHeaders.encodeAscii0(String.valueOf(reasonPhrase()), buf);
+            HttpHeaders.encodeAscii0(String.valueOf(code()), writer);
+            writer.writeByte(SP);
+            HttpHeaders.encodeAscii0(String.valueOf(reasonPhrase()), writer);
         } else {
-            buf.writeBytes(bytes);
+            writer.writeBytes(bytes);
         }
     }
 }

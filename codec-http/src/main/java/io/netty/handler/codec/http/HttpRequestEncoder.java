@@ -16,6 +16,7 @@
 package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteWriter;
 import io.netty.util.CharsetUtil;
 
 import static io.netty.handler.codec.http.HttpConstants.*;
@@ -28,15 +29,21 @@ public class HttpRequestEncoder extends HttpObjectEncoder<HttpRequest> {
     private static final char SLASH = '/';
     private static final byte[] CRLF = { CR, LF };
 
+    public HttpRequestEncoder() { }
+
+    public HttpRequestEncoder(int bufferSize) {
+        super(bufferSize);
+    }
+
     @Override
     public boolean acceptOutboundMessage(Object msg) throws Exception {
         return super.acceptOutboundMessage(msg) && !(msg instanceof HttpResponse);
     }
 
     @Override
-    protected void encodeInitialLine(ByteBuf buf, HttpRequest request) throws Exception {
-        request.getMethod().encode(buf);
-        buf.writeByte(SP);
+    protected void encodeInitialLine(ByteWriter encoder, HttpRequest request) throws Exception {
+        request.getMethod().encode(encoder);
+        encoder.writeByte(SP);
 
         // Add / as absolute path if no is present.
         // See http://tools.ietf.org/html/rfc2616#section-5.1.2
@@ -54,10 +61,10 @@ public class HttpRequestEncoder extends HttpObjectEncoder<HttpRequest> {
             }
         }
 
-        buf.writeBytes(uri.getBytes(CharsetUtil.UTF_8));
+        encoder.writeBytes(uri.getBytes(CharsetUtil.UTF_8));
 
-        buf.writeByte(SP);
-        request.getProtocolVersion().encode(buf);
-        buf.writeBytes(CRLF);
+        encoder.writeByte(SP);
+        request.getProtocolVersion().encode(encoder);
+        encoder.writeBytes(CRLF);
     }
 }

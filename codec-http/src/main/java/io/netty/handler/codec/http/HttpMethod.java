@@ -15,7 +15,7 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteWriter;
 import io.netty.util.CharsetUtil;
 
 import java.util.HashMap;
@@ -195,11 +195,11 @@ public class HttpMethod implements Comparable<HttpMethod> {
         return name().compareTo(o.name());
     }
 
-    void encode(ByteBuf buf) {
+    void encode(ByteWriter writer) {
         if (bytes == null) {
-            HttpHeaders.encodeAscii0(name, buf);
+            HttpHeaders.encodeAscii0(name, writer);
         } else {
-            buf.writeBytes(bytes);
+            writer.writeBytes(bytes);
         }
     }
 }

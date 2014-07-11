@@ -15,7 +15,7 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteWriter;
 
 import java.util.Arrays;
 import java.util.Calendar;
@@ -400,7 +400,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
         return value.toString();
     }
 
-    void encode(ByteBuf buf) {
+    void encode(ByteWriter buf) {
         HeaderEntry e = head.after;
         while (e != head) {
             e.encode(buf);
@@ -491,7 +491,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
             return key.toString() + '=' + value.toString();
         }
 
-        void encode(ByteBuf buf) {
+        void encode(ByteWriter buf) {
             HttpHeaders.encode(key, value, buf);
         }
     }

@@ -16,15 +16,13 @@
 package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteWriter;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.FileRegion;
-import io.netty.handler.codec.MessageToMessageEncoder;
+import io.netty.handler.codec.BufferedMessageToByteEncoder;
 import io.netty.util.CharsetUtil;
 import io.netty.util.internal.StringUtil;
 
-import java.util.List;
-
-import static io.netty.buffer.Unpooled.*;
 import static io.netty.handler.codec.http.HttpConstants.*;
 
 /**
@@ -40,13 +38,10 @@ import static io.netty.handler.codec.http.HttpConstants.*;
  * To implement the encoder of such a derived protocol, extend this class and
  * implement all abstract methods properly.
  */
-public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageToMessageEncoder<Object> {
+public abstract class HttpObjectEncoder<H extends HttpMessage> extends BufferedMessageToByteEncoder<Object> {
     private static final byte[] CRLF = { CR, LF };
     private static final byte[] ZERO_CRLF = { '0', CR, LF };
     private static final byte[] ZERO_CRLF_CRLF = { '0', CR, LF, CR, LF };
-    private static final ByteBuf CRLF_BUF = unreleasableBuffer(directBuffer(CRLF.length).writeBytes(CRLF));
-    private static final ByteBuf ZERO_CRLF_CRLF_BUF = unreleasableBuffer(directBuffer(ZERO_CRLF_CRLF.length)
-            .writeBytes(ZERO_CRLF_CRLF));
 
     private static final int ST_INIT = 0;
     private static final int ST_CONTENT_NON_CHUNK = 1;
@@ -55,9 +50,14 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
     @SuppressWarnings("RedundantFieldInitialization")
     private int state = ST_INIT;
 
+    protected HttpObjectEncoder() { }
+
+    protected HttpObjectEncoder(int bufferSize) {
+        super(bufferSize);
+    }
+
     @Override
-    protected void encode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
-        ByteBuf buf = null;
+    protected void encode(ChannelHandlerContext ctx, Object msg, Encoder encoder) throws Exception {
         if (msg instanceof HttpMessage) {
             if (state != ST_INIT) {
                 throw new IllegalStateException("unexpected message type: " + StringUtil.simpleClassName(msg));
@@ -66,11 +66,10 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             @SuppressWarnings({ "unchecked", "CastConflictsWithInstanceof" })
             H m = (H) msg;
 
-            buf = ctx.alloc().buffer();
             // Encode the message.
-            encodeInitialLine(buf, m);
-            HttpHeaders.encode(m.headers(), buf);
-            buf.writeBytes(CRLF);
+            encodeInitialLine(encoder, m);
+            HttpHeaders.encode(m.headers(), encoder);
+            encoder.writeBytes(CRLF);
             state = HttpHeaders.isTransferEncodingChunked(m) ? ST_CONTENT_CHUNK : ST_CONTENT_NON_CHUNK;
         }
         if (msg instanceof HttpContent || msg instanceof ByteBuf || msg instanceof FileRegion) {
@@ -81,93 +80,58 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             final long contentLength = contentLength(msg);
             if (state == ST_CONTENT_NON_CHUNK) {
                 if (contentLength > 0) {
-                    if (buf != null && buf.writableBytes() >= contentLength && msg instanceof HttpContent) {
-                        // merge into other buffer for performance reasons
-                        buf.writeBytes(((HttpContent) msg).content());
-                        out.add(buf);
-                    } else {
-                        if (buf != null) {
-                            out.add(buf);
-                        }
-                        out.add(encodeAndRetain(msg));
-                    }
-                } else {
-                    if (buf != null) {
-                        out.add(buf);
-                    } else {
-                        // Need to produce some output otherwise an
-                        // IllegalStateException will be thrown
-                        out.add(EMPTY_BUFFER);
-                    }
+                    encodeMsg(encoder, msg);
                 }
 
                 if (msg instanceof LastHttpContent) {
                     state = ST_INIT;
                 }
             } else if (state == ST_CONTENT_CHUNK) {
-                if (buf != null) {
-                    out.add(buf);
-                }
-                encodeChunkedContent(ctx, msg, contentLength, out);
+
+                encodeChunkedContent(msg, contentLength, encoder);
             } else {
                 throw new Error();
-            }
-        } else {
-            if (buf != null) {
-                out.add(buf);
             }
         }
     }
 
-    private void encodeChunkedContent(ChannelHandlerContext ctx, Object msg, long contentLength, List<Object> out) {
+    private void encodeChunkedContent(Object msg, long contentLength, Encoder encoder) {
         if (contentLength > 0) {
             byte[] length = Long.toHexString(contentLength).getBytes(CharsetUtil.US_ASCII);
-            ByteBuf buf = ctx.alloc().buffer(length.length + 2);
-            buf.writeBytes(length);
-            buf.writeBytes(CRLF);
-            out.add(buf);
-            out.add(encodeAndRetain(msg));
-            out.add(CRLF_BUF.duplicate());
+            encoder.writeBytes(length);
+            encoder.writeBytes(CRLF);
+            encodeMsg(encoder, msg);
+            encoder.writeBytes(CRLF);
         }
 
         if (msg instanceof LastHttpContent) {
             HttpHeaders headers = ((LastHttpContent) msg).trailingHeaders();
             if (headers.isEmpty()) {
-                out.add(ZERO_CRLF_CRLF_BUF.duplicate());
+                encoder.writeBytes(ZERO_CRLF_CRLF);
             } else {
-                ByteBuf buf = ctx.alloc().buffer();
-                buf.writeBytes(ZERO_CRLF);
-                HttpHeaders.encode(headers, buf);
-                buf.writeBytes(CRLF);
-                out.add(buf);
+                encoder.writeBytes(ZERO_CRLF);
+                HttpHeaders.encode(headers, encoder);
+                encoder.writeBytes(CRLF);
             }
 
             state = ST_INIT;
+        }
+    }
+
+    private static void encodeMsg(Encoder encoder, Object msg) {
+        if (msg instanceof HttpContent) {
+            encoder.writeBytes(((HttpContent) msg).content());
+        } else if (msg instanceof FileRegion) {
+            encoder.writeFileRegion((FileRegion) msg);
         } else {
-            if (contentLength == 0) {
-                // Need to produce some output otherwise an
-                // IllegalstateException will be thrown
-                out.add(EMPTY_BUFFER);
-            }
+            // TODO: Fix me
+            throw new IllegalStateException("unexpected message type: " + StringUtil.simpleClassName(msg));
         }
     }
 
     @Override
     public boolean acceptOutboundMessage(Object msg) throws Exception {
         return msg instanceof HttpObject || msg instanceof ByteBuf || msg instanceof FileRegion;
-    }
-
-    private static Object encodeAndRetain(Object msg) {
-        if (msg instanceof ByteBuf) {
-            return ((ByteBuf) msg).retain();
-        }
-        if (msg instanceof HttpContent) {
-            return ((HttpContent) msg).content().retain();
-        }
-        if (msg instanceof FileRegion) {
-            return ((FileRegion) msg).retain();
-        }
-        throw new IllegalStateException("unexpected message type: " + StringUtil.simpleClassName(msg));
     }
 
     private static long contentLength(Object msg) {
@@ -184,9 +148,9 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
     }
 
     @Deprecated
-    protected static void encodeAscii(String s, ByteBuf buf) {
+    protected static void encodeAscii(String s, ByteWriter buf) {
         HttpHeaders.encodeAscii0(s, buf);
     }
 
-    protected abstract void encodeInitialLine(ByteBuf buf, H message) throws Exception;
+    protected abstract void encodeInitialLine(ByteWriter encoder, H message) throws Exception;
 }

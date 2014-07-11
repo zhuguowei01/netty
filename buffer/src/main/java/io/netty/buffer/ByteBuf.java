@@ -227,7 +227,7 @@ import java.nio.charset.UnsupportedCharsetException;
  * {@link ByteBufOutputStream}.
  */
 @SuppressWarnings("ClassMayBeInterface")
-public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
+public abstract class ByteBuf implements ByteWriter, ReferenceCounted, Comparable<ByteBuf> {
 
     /**
      * Returns the number of bytes (octets) this buffer can contain.
@@ -1328,6 +1328,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 1}
      */
+    @Override
     public abstract ByteBuf writeBoolean(boolean value);
 
     /**
@@ -1338,6 +1339,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 1}
      */
+    @Override
     public abstract ByteBuf writeByte(int value);
 
     /**
@@ -1348,6 +1350,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 2}
      */
+    @Override
     public abstract ByteBuf writeShort(int value);
 
     /**
@@ -1358,6 +1361,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 3}
      */
+    @Override
     public abstract ByteBuf writeMedium(int   value);
 
     /**
@@ -1367,6 +1371,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 4}
      */
+    @Override
     public abstract ByteBuf writeInt(int   value);
 
     /**
@@ -1377,6 +1382,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 8}
      */
+    @Override
     public abstract ByteBuf writeLong(long  value);
 
     /**
@@ -1387,6 +1393,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 2}
      */
+    @Override
     public abstract ByteBuf writeChar(int value);
 
     /**
@@ -1397,6 +1404,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 4}
      */
+    @Override
     public abstract ByteBuf writeFloat(float value);
 
     /**
@@ -1407,6 +1415,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code this.writableBytes} is less than {@code 8}
      */
+    @Override
     public abstract ByteBuf writeDouble(double value);
 
     /**
@@ -1423,6 +1432,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      *         if {@code src.readableBytes} is greater than
      *            {@code this.writableBytes}
      */
+    @Override
     public abstract ByteBuf writeBytes(ByteBuf src);
 
     /**
@@ -1440,6 +1450,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      *         if {@code length} is greater than {@code this.writableBytes} or
      *         if {@code length} is greater then {@code src.readableBytes}
      */
+    @Override
     public abstract ByteBuf writeBytes(ByteBuf src, int length);
 
     /**
@@ -1456,6 +1467,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      *            {@code src.capacity}, or
      *         if {@code length} is greater than {@code this.writableBytes}
      */
+    @Override
     public abstract ByteBuf writeBytes(ByteBuf src, int srcIndex, int length);
 
     /**
@@ -1466,6 +1478,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * @throws IndexOutOfBoundsException
      *         if {@code src.length} is greater than {@code this.writableBytes}
      */
+    @Override
     public abstract ByteBuf writeBytes(byte[] src);
 
     /**
@@ -1482,6 +1495,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      *            {@code src.length}, or
      *         if {@code length} is greater than {@code this.writableBytes}
      */
+    @Override
     public abstract ByteBuf writeBytes(byte[] src, int srcIndex, int length);
 
     /**
@@ -1494,6 +1508,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      *         if {@code src.remaining()} is greater than
      *            {@code this.writableBytes}
      */
+    @Override
     public abstract ByteBuf writeBytes(ByteBuffer src);
 
     /**

@@ -15,7 +15,7 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteWriter;
 import io.netty.util.CharsetUtil;
 
 import java.util.regex.Matcher;
@@ -271,11 +271,11 @@ public class HttpVersion implements Comparable<HttpVersion> {
         return minorVersion() - o.minorVersion();
     }
 
-    void encode(ByteBuf buf) {
+    void encode(ByteWriter writer) {
         if (bytes == null) {
-            HttpHeaders.encodeAscii0(text, buf);
+            HttpHeaders.encodeAscii0(text, writer);
         } else {
-            buf.writeBytes(bytes);
+            writer.writeBytes(bytes);
         }
     }
 }
