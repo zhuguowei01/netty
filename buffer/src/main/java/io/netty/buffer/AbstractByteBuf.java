@@ -713,11 +713,12 @@ public abstract class AbstractByteBuf extends ByteBuf {
         checkReadableBytes(length);
 
         int newReaderIndex = readerIndex + length;
-        if (newReaderIndex > writerIndex) {
+        // I think below check is duplicate, because the same check processed in before checkReadableBytes 
+        /*if (newReaderIndex > writerIndex) {
             throw new IndexOutOfBoundsException(String.format(
                     "length: %d (expected: readerIndex(%d) + length <= writerIndex(%d))",
                     length, readerIndex, writerIndex));
-        }
+        }*/
         readerIndex = newReaderIndex;
         return this;
     }
